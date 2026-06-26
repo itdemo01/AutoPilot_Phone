@@ -24,7 +24,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning className={`${spaceGrotesk.variable} ${jetbrainsMono.variable}`}>
-      <body className="antialiased" suppressHydrationWarning>
+      <body className="antialiased bg-black text-zinc-100" suppressHydrationWarning>
         {children}
       </body>
     </html>

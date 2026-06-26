@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from "react";
 
 interface WebSocketMessage {
   type: string;
@@ -14,16 +14,33 @@ export function useWebSocket(apiUrl: string) {
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const key = localStorage.getItem('APP_SECRET_KEY');
+    const key = localStorage.getItem("APP_SECRET_KEY");
     setApiKey(key);
   }, []);
 
   const saveApiKey = useCallback((key: string) => {
-    localStorage.setItem('APP_SECRET_KEY', key);
+    localStorage.setItem("APP_SECRET_KEY", key);
     setApiKey(key);
   }, []);
 
   useEffect(() => {
+    let pingTimer: NodeJS.Timeout;
+
+    // If simulating local for preview visual, don't require API key initially
+    if (apiUrl === "SIMULATE_LOCAL") {
+      const simulateConnect = () => {
+        setIsConnected(true);
+        pingTimer = setInterval(() => {
+          setLatency(10 + Math.floor(Math.random() * 8));
+        }, 2000);
+      };
+      const simTimer = setTimeout(simulateConnect, 1500);
+      return () => {
+        clearTimeout(simTimer);
+        clearInterval(pingTimer);
+      };
+    }
+
     if (!apiKey) {
       setIsConnected(false);
       setLatency(null);
@@ -31,13 +48,14 @@ export function useWebSocket(apiUrl: string) {
     }
 
     let reconnectTimer: NodeJS.Timeout;
-    let pingTimer: NodeJS.Timeout;
 
     const connect = () => {
       try {
         // Use wss protocol if https, else ws
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = apiUrl.startsWith('ws') ? apiUrl : `${protocol}//${apiUrl}`;
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = apiUrl.startsWith("ws")
+          ? apiUrl
+          : `${protocol}//${apiUrl}`;
         const ws = new WebSocket(`${wsUrl}?auth=${apiKey}`);
         wsRef.current = ws;
 
@@ -46,7 +64,7 @@ export function useWebSocket(apiUrl: string) {
           // Ping to measure latency
           pingTimer = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+              ws.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
             }
           }, 2000);
         };
@@ -54,13 +72,13 @@ export function useWebSocket(apiUrl: string) {
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === 'pong' && data.timestamp) {
+            if (data.type === "pong" && data.timestamp) {
               setLatency(Date.now() - data.timestamp);
             } else {
               setLastMessage(data);
             }
           } catch (e) {
-            console.error('Failed to parse WebSocket message', e);
+            console.error("Failed to parse WebSocket message", e);
           }
         };
 
@@ -75,29 +93,13 @@ export function useWebSocket(apiUrl: string) {
           setIsConnected(false);
           ws.close();
         };
-
       } catch (err) {
         setIsConnected(false);
         reconnectTimer = setTimeout(connect, 3000);
       }
     };
 
-    // If simulating local for preview visual:
-    if (apiUrl === 'SIMULATE_LOCAL') {
-      const simulateConnect = () => {
-        setIsConnected(true);
-        pingTimer = setInterval(() => {
-            setLatency(10 + Math.floor(Math.random() * 8));
-        }, 2000);
-      };
-      const simTimer = setTimeout(simulateConnect, 1500);
-      return () => {
-        clearTimeout(simTimer);
-        clearInterval(pingTimer);
-      };
-    } else {
-      connect();
-    }
+    connect();
 
     return () => {
       if (wsRef.current) {
