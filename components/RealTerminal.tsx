@@ -8,10 +8,20 @@ import {
   GitBranch,
   GitMerge,
   FolderGit2,
+  Lock,
+  ShieldAlert,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
-export default function RealTerminal({ battery = 100 }: { battery?: number }) {
+export default function RealTerminal({
+  battery = 100,
+  session = null,
+  onOpenAuth,
+}: {
+  battery?: number;
+  session?: { username: string; email: string; role: string } | null;
+  onOpenAuth?: () => void;
+}) {
   const [logs, setLogs] = useState<string[]>([
     "Welcome to Real Terminal",
     "Type your commands below or use the Git Pipeline shortcuts.",
@@ -96,7 +106,7 @@ export default function RealTerminal({ battery = 100 }: { battery?: number }) {
   };
 
   return (
-    <div className="bg-black border border-zinc-800 rounded-xl overflow-hidden shadow-lg shadow-black/50 flex flex-col h-full min-h-[400px]">
+    <div className="bg-black border border-zinc-800 rounded-xl overflow-hidden shadow-lg shadow-black/50 flex flex-col h-full min-h-[400px] relative">
       <div className="bg-zinc-900/80 px-4 py-3 border-b border-zinc-800 flex flex-wrap justify-between items-center gap-3 shrink-0 backdrop-blur-md">
         <h2 className="text-sm font-bold tracking-widest text-emerald-400 uppercase flex items-center gap-2">
           <TerminalIcon className="w-4 h-4" /> Live Terminal & Pipeline
@@ -184,6 +194,26 @@ export default function RealTerminal({ battery = 100 }: { battery?: number }) {
           <Play className="w-4 h-4" />
         </button>
       </div>
+
+      {!session && (
+        <div className="absolute inset-0 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-10 rounded-xl">
+          <div className="p-3 bg-indigo-500/10 rounded-full text-indigo-400 border border-indigo-500/20 shadow-[0_0_20px_rgba(99,102,241,0.25)] mb-4 animate-bounce">
+            <Lock className="w-8 h-8" />
+          </div>
+          <h3 className="text-zinc-100 font-bold tracking-wider font-mono text-xs uppercase mb-2">
+            KORO COMMAND INJECTION PROTECTED
+          </h3>
+          <p className="text-[11px] text-zinc-500 max-w-xs font-mono mb-5 leading-relaxed">
+            Live terminal sessions and system commands are restricted to authenticated Koro Operators.
+          </p>
+          <button
+            onClick={onOpenAuth}
+            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-[10px] font-bold uppercase tracking-widest rounded border border-indigo-500/30 transition-all shadow-[0_0_15px_rgba(99,102,241,0.3)] flex items-center gap-2 cursor-pointer"
+          >
+            <ShieldAlert className="w-3.5 h-3.5" /> Establish Operator Credentials
+          </button>
+        </div>
+      )}
     </div>
   );
 }

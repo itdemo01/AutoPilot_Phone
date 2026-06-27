@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Smartphone,
@@ -49,6 +49,7 @@ import PerformanceChart from "../components/PerformanceChart";
 import SwarmFleetDashboard from "../components/SwarmFleetDashboard";
 import GamepadControl from "../components/GamepadControl";
 import AgenticSkillModule from "../components/AgenticSkillModule";
+import PhoneDashboardManager from "../components/PhoneDashboardManager";
 
 import LogicTree from "../components/LogicTree";
 import WorkflowHistory, {
@@ -61,10 +62,23 @@ import DeviceConnectionWizard from "../components/DeviceConnectionWizard";
 import ClientHunter from "../components/ClientHunter";
 import RealTerminal from "../components/RealTerminal";
 import { useWebSocket } from "../hooks/useWebSocket";
+import UserAuthModal, { UserSession } from "../components/UserAuthModal";
 
 export default function Page() {
-  const { isConnected, latency, apiKey, saveApiKey } =
-    useWebSocket("SIMULATE_LOCAL");
+  const {
+    isConnected,
+    latency,
+    apiKey,
+    saveApiKey,
+    hostUrl,
+    saveHostUrl,
+    sendMessage,
+    lastMessage,
+  } = useWebSocket("SIMULATE_LOCAL");
+  
+  const [session, setSession] = useState<UserSession | null>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
   const [isSecurityOpen, setIsSecurityOpen] = useState(false);
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
@@ -164,6 +178,7 @@ export default function Page() {
     x: number;
     y: number;
   } | null>(null);
+  const [screenData, setScreenData] = useState<string | null>(null);
   const [generatedNodes, setGeneratedNodes] = useState<
     { id: string; label: string }[]
   >([]);
@@ -184,6 +199,21 @@ export default function Page() {
   const [isManualOverride, setIsManualOverride] = useState(false);
   const [isSystemPaused, setIsSystemPaused] = useState(false);
   const isSystemPausedRef = useRef(false);
+  const isConnectedRef = useRef(isConnected);
+  const sendMessageRef = useRef(sendMessage);
+
+  useEffect(() => {
+    isConnectedRef.current = isConnected;
+    sendMessageRef.current = sendMessage;
+  }, [isConnected, sendMessage]);
+
+  useEffect(() => {
+    if (lastMessage?.type === "log" && lastMessage.payload) {
+      addLog(`[BACKEND] ${lastMessage.payload}`);
+    } else if (lastMessage?.type === "screen" && lastMessage.data) {
+      setScreenData(lastMessage.data);
+    }
+  }, [lastMessage]);
 
   useEffect(() => {
     isSystemPausedRef.current = isSystemPaused;
@@ -196,9 +226,53 @@ export default function Page() {
     }
   }, [logs]);
 
-  const addLog = (message: string) => {
+  const addLog = useCallback((message: string) => {
     setLogs((prev) => [...prev, `> ${message}`]);
+  }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("koro_user_session");
+    if (saved) {
+      try {
+        setSession(JSON.parse(saved));
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, []);
+
+  const handleLogin = (newSession: UserSession) => {
+    setSession(newSession);
+    localStorage.setItem("koro_user_session", JSON.stringify(newSession));
+    addLog(`Operator authenticated: Welcome ${newSession.username} [Role: ${newSession.role.toUpperCase()}]`);
   };
+
+  const handleLogout = () => {
+    setSession(null);
+    localStorage.removeItem("koro_user_session");
+    addLog("Operator session terminated safely.");
+  };
+
+  const executeTap = useCallback((x: number, y: number) => {
+    setClickPosition({ x, y });
+    if (isConnectedRef.current) {
+      // Scale percentage coordinates to reasonable absolute device values
+      sendMessageRef.current("action", {
+        action: "tap",
+        x: Math.floor((x / 100) * 1080),
+        y: Math.floor((y / 100) * 2400),
+      });
+    }
+  }, []);
+
+  const executeShellCommand = useCallback((command: string) => {
+    if (isConnectedRef.current) {
+      sendMessageRef.current("action", {
+        action: "shell",
+        command,
+      });
+    }
+  }, []);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -277,41 +351,44 @@ export default function Page() {
         const currentState = states[stateIndex];
 
         // Randomize touch position slightly
-        setClickPosition({
-          x: 20 + Math.random() * 80,
-          y: 30 + Math.random() * 100,
-        });
+        executeTap(20 + Math.random() * 80, 30 + Math.random() * 100);
 
         if (currentState === "home") {
           setActiveApp("home");
           addLog("Vision: Analyzing Home Screen layout...");
+          executeShellCommand("input keyevent KEYCODE_HOME");
         } else if (currentState === "chrome") {
           setActiveApp("chrome");
           addLog("Navigating to application com.android.chrome...");
+          executeShellCommand(
+            "am start -n com.android.chrome/com.google.android.apps.chrome.Main",
+          );
         } else if (currentState === "searching_chrome") {
           addLog("Vision: Extracting text and initiating search query...");
-          setClickPosition({ x: 50, y: 15 });
+          executeTap(50, 15);
         } else if (currentState === "scrolling_chrome") {
           addLog("Simulating human scroll behavior (velocity: 1.2px/ms)...");
-          setClickPosition({ x: 50, y: 150 });
-          setTimeout(() => setClickPosition({ x: 50, y: 50 }), 500); // Swipe up
+          executeShellCommand("input swipe 500 1500 500 500");
         } else if (currentState === "reading_chrome") {
           addLog("Vision: Analyzing context & reading web content...");
         } else if (currentState === "maps") {
           setActiveApp("maps");
           addLog("Navigating to application com.google.android.apps.maps...");
-          setClickPosition({ x: 65, y: 40 }); // Click Maps icon
+          executeShellCommand(
+            "am start -n com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+          );
         } else if (currentState === "searching_maps") {
           addLog("Vision: Detected search bar. Initiating query...");
         } else if (currentState === "viewing_maps") {
           addLog("Vision: Calculating route and ETA...");
-          setClickPosition({ x: 50, y: 80 });
+          executeTap(50, 80);
         } else if (currentState === "camera") {
           setActiveApp("camera");
           addLog("Opening camera feed for visual analysis...");
+          executeShellCommand("am start -a android.media.action.IMAGE_CAPTURE");
         } else if (currentState === "taking_photo") {
           addLog("Analyzing visual feed objects...");
-          setClickPosition({ x: 50, y: 85 }); // Shutter button
+          executeShellCommand("input keyevent KEYCODE_CAMERA");
         }
 
         setBattery((prev) => Math.max(0, prev - Math.random() * 0.5));
@@ -622,7 +699,7 @@ export default function Page() {
           `[VISION] Camera application detected at coordinates (x: 820, y: 640).`,
         );
         // Show fake click (mapped to our visual frame)
-        setClickPosition({ x: 95, y: 85 });
+        executeTap(95, 85);
       }, 1500);
 
       setTimeout(() => {
@@ -934,9 +1011,27 @@ export default function Page() {
             isSystemPaused ? "System resumed." : "System globally paused.",
           );
         }}
+        session={session}
+        onOpenAuth={() => setIsAuthOpen(true)}
       />
 
       <main className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 pb-20 max-w-7xl mx-auto">
+        {/* Full-width Phone Dashboard Section */}
+        <div className="lg:col-span-12">
+          <PhoneDashboardManager
+            scripts={scripts}
+            setScripts={setScripts}
+            battery={battery}
+            setBattery={setBattery}
+            selectedDeviceId={selectedDeviceId}
+            devices={devices}
+            addLog={addLog}
+            isManualOverride={isManualOverride}
+            setIsManualOverride={setIsManualOverride}
+            executeShellCommand={executeShellCommand}
+          />
+        </div>
+
         {/* Left Column: Vision & Commands */}
         <div className="lg:col-span-5 flex flex-col gap-4 sm:gap-6">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-4 sm:p-5">
@@ -1009,7 +1104,15 @@ export default function Page() {
 
                       {/* Fake Content Based on Active App */}
                       <div className="flex-1 bg-gradient-to-b from-zinc-800 to-zinc-950 p-2 relative">
-                        {activeApp === "camera" ? (
+                        {screenData ? (
+                          <div className="absolute inset-0 bg-black flex items-center justify-center z-40">
+                            <img
+                              src={screenData}
+                              className="w-full h-full object-cover"
+                              alt="Real Device Screen"
+                            />
+                          </div>
+                        ) : activeApp === "camera" ? (
                           <div className="absolute inset-0 bg-black flex items-center justify-center z-30">
                             {/* Camera Viewfinder Fake */}
                             <div className="absolute inset-4 border-2 border-white/30 flex items-center justify-center">
@@ -1181,7 +1284,7 @@ export default function Page() {
                       <AnimatePresence>
                         {detectedUINodes.map((node) => (
                           <motion.div
-                            key={node.id}
+                            key={`v1-${node.id}`}
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
@@ -1323,7 +1426,7 @@ export default function Page() {
                     <ul className="max-h-40 overflow-y-auto w-full">
                       {matchingSuggestions.map((suggestion, idx) => (
                         <li
-                          key={suggestion}
+                          key={`${suggestion}-${idx}`}
                           className={`px-3 py-2 text-sm font-mono cursor-pointer flex items-center gap-2 ${idx === 0 ? "bg-zinc-700/30 text-zinc-200" : "text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-200"} transition-colors`}
                           onClick={() => {
                             setCommandInput(suggestion + " ");
@@ -1359,7 +1462,11 @@ export default function Page() {
 
           {/* Real Terminal & Git Pipeline */}
           <div className="h-[350px]">
-            <RealTerminal battery={battery} />
+            <RealTerminal
+              battery={battery}
+              session={session}
+              onOpenAuth={() => setIsAuthOpen(true)}
+            />
           </div>
 
           {/* Zero-Touch Orchestration Bar */}
@@ -1398,139 +1505,7 @@ export default function Page() {
             </form>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-5">
-            <h2 className="text-sm font-bold tracking-widest text-zinc-400 uppercase mb-4">
-              Command Payload
-            </h2>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => executeQuickAction("Lock Screen")}
-                disabled={activeAction !== null}
-                className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 p-3 rounded-lg flex flex-col items-center justify-center gap-2 transition-colors text-zinc-300 hover:text-white disabled:opacity-50"
-              >
-                {activeAction === "Lock Screen" ? (
-                  <RotateCw className="w-5 h-5 text-emerald-400 animate-spin" />
-                ) : (
-                  <Lock className="w-5 h-5 text-blue-400" />
-                )}
-                <span className="text-xs font-semibold">
-                  {activeAction === "Lock Screen" ? "Locking..." : "Lock"}
-                </span>
-              </button>
-              <button
-                onClick={() => executeQuickAction("Wipe App Data")}
-                disabled={activeAction !== null}
-                className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 p-3 rounded-lg flex flex-col items-center justify-center gap-2 transition-colors text-zinc-300 hover:text-white disabled:opacity-50"
-              >
-                {activeAction === "Wipe App Data" ? (
-                  <RotateCw className="w-5 h-5 text-emerald-400 animate-spin" />
-                ) : (
-                  <Trash2 className="w-5 h-5 text-red-400" />
-                )}
-                <span className="text-xs font-semibold">
-                  {activeAction === "Wipe App Data" ? "Wiping..." : "Wipe Data"}
-                </span>
-              </button>
-              <button
-                onClick={() => executeQuickAction("Screen Stream")}
-                disabled={activeAction !== null}
-                className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 p-3 rounded-lg flex flex-col items-center justify-center gap-2 transition-colors text-zinc-300 hover:text-white disabled:opacity-50"
-              >
-                {activeAction === "Screen Stream" ? (
-                  <RotateCw className="w-5 h-5 text-emerald-400 animate-spin" />
-                ) : (
-                  <MonitorPlay className="w-5 h-5 text-indigo-400" />
-                )}
-                <span className="text-xs font-semibold">
-                  {activeAction === "Screen Stream" ? "Starting..." : "Stream"}
-                </span>
-              </button>
-              <button
-                onClick={() => executeQuickAction("Reboot Device")}
-                disabled={activeAction !== null}
-                className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 p-3 rounded-lg flex flex-col items-center justify-center gap-2 transition-colors text-zinc-300 hover:text-white disabled:opacity-50"
-              >
-                {activeAction === "Reboot Device" ? (
-                  <RotateCw className="w-5 h-5 text-emerald-400 animate-spin" />
-                ) : (
-                  <RotateCw className="w-5 h-5 text-orange-400" />
-                )}
-                <span className="text-xs font-semibold">
-                  {activeAction === "Reboot Device" ? "Rebooting..." : "Reboot"}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {isManualOverride ? (
-            <GamepadControl
-              onCommand={(cmd) => {
-                addLog(`[MANUAL OVERRIDE] ${cmd}`);
-              }}
-            />
-          ) : (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-5">
-              <h2 className="text-sm font-bold tracking-widest text-zinc-400 uppercase mb-4">
-                Automation Scripts
-              </h2>
-              <div className="space-y-3">
-                {scripts.map((script) => (
-                  <div
-                    key={script.id}
-                    className="flex items-center justify-between p-3 bg-zinc-800/50 border border-zinc-800 rounded-lg hover:border-zinc-600 cursor-pointer transition-colors group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="text-zinc-500 group-hover:text-zinc-400 transition-colors">
-                        {script.type === "download" && (
-                          <Download className="w-4 h-4" />
-                        )}
-                        {script.type === "shield" && (
-                          <ShieldAlert className="w-4 h-4" />
-                        )}
-                        {script.type === "zap" && <Zap className="w-4 h-4" />}
-                      </div>
-                      <div>
-                        <div className="text-sm text-zinc-200">
-                          Routine: {script.name}
-                        </div>
-                        <div
-                          className={`text-[10px] uppercase font-bold tracking-widest transition-colors ${script.status === "Active" ? "text-emerald-400" : "text-zinc-500"}`}
-                        >
-                          {script.status}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        const newScripts = [...scripts];
-                        const s = newScripts.find((x) => x.id === script.id);
-                        if (s) {
-                          if (s.status === "Active") {
-                            s.status = "Idle";
-                            addLog(`Halting Routine: ${s.name}...`);
-                          } else {
-                            s.status = "Active";
-                            addLog(`Starting Routine: ${s.name}...`);
-                          }
-                          setScripts(newScripts);
-                        }
-                      }}
-                      className="text-zinc-400 hover:text-white transition-colors"
-                    >
-                      {script.status === "Active" ? (
-                        <Square className="w-4 h-4 fill-current text-emerald-400" />
-                      ) : (
-                        <Play className="w-4 h-4 fill-current" />
-                      )}
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button className="mt-4 w-full border border-dashed border-zinc-700 text-zinc-500 py-3 rounded-lg text-sm font-medium hover:border-zinc-500 hover:text-zinc-300 transition-colors flex items-center justify-center gap-2">
-                <Plus className="w-4 h-4" /> Upload Script
-              </button>
-            </div>
-          )}
+          {/* Phone Dashboard & Task Manager is now rendered in full-width at the top of the main container */}
         </div>
 
         {/* Right Column: Actions & Dashboards */}
@@ -1556,7 +1531,7 @@ export default function Page() {
                 <div className="p-5 border border-dashed border-emerald-500/30 rounded-xl bg-emerald-500/5 flex items-center justify-center gap-4 min-h-[100px]">
                   {generatedNodes.map((node, i) => (
                     <motion.div
-                      key={node.id}
+                      key={`${node.id}-${i}`}
                       initial={{ scale: 0, x: -20 }}
                       animate={{ scale: 1, x: 0 }}
                       className="flex items-center gap-4"
@@ -2170,23 +2145,25 @@ export default function Page() {
                     >
                       <img
                         src={
-                          activeApp === "chrome"
-                            ? "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?q=80&w=1200&auto=format&fit=crop"
-                            : activeApp === "maps"
-                              ? "https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=1200&auto=format&fit=crop"
-                              : activeApp === "home"
-                                ? "https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=1200&auto=format&fit=crop"
-                                : "https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=1200&auto=format&fit=crop"
+                          screenData
+                            ? screenData
+                            : activeApp === "chrome"
+                              ? "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?q=80&w=1200&auto=format&fit=crop"
+                              : activeApp === "maps"
+                                ? "https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=1200&auto=format&fit=crop"
+                                : activeApp === "home"
+                                  ? "https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=1200&auto=format&fit=crop"
+                                  : "https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=1200&auto=format&fit=crop"
                         }
                         alt="Vision capture feed"
-                        className="w-full h-full object-cover scale-[1.1] opacity-70 grayscale contrast-125 pointer-events-none transition-all duration-700"
+                        className={`w-full h-full object-cover pointer-events-none transition-all duration-700 ${screenData ? "scale-[1.0] opacity-100 grayscale-0 contrast-100 rounded-lg" : "scale-[1.1] opacity-70 grayscale contrast-125"}`}
                         draggable={false}
                       />
                       {/* Object Detection Boxes */}
                       <AnimatePresence>
                         {detectedUINodes.map((node) => (
                           <motion.div
-                            key={node.id}
+                            key={`v2-${node.id}`}
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
@@ -2313,7 +2290,9 @@ export default function Page() {
         isOpen={isSecurityOpen}
         onClose={() => setIsSecurityOpen(false)}
         currentKey={apiKey}
+        currentUrl={hostUrl}
         onSaveKey={saveApiKey}
+        onSaveUrl={saveHostUrl}
       />
       <ModelSettings
         isOpen={isModelSettingsOpen}
@@ -2334,6 +2313,27 @@ export default function Page() {
           setSelectedDeviceId(device.id);
         }}
       />
+      <UserAuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        session={session}
+        onLogin={handleLogin}
+        onLogout={handleLogout}
+      />
+
+      {/* Global Footer */}
+      <footer className="w-full border-t border-zinc-800 bg-zinc-950/80 backdrop-blur-md py-6 px-4 sm:px-6 mt-12 text-center" id="global-footer">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-zinc-500 text-xs font-mono">
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
+            <span className="text-zinc-400 font-bold tracking-wider">KORO AUTOMATION ENGINE</span>
+            <span className="text-zinc-600">v1.2.0</span>
+          </div>
+          <div>
+            <span>© 2026 Koro. All rights reserved.</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

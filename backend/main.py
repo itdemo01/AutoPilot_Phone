@@ -1,6 +1,8 @@
 import os
 import json
 import asyncio
+import base64
+import shlex
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Security
 from fastapi.security.api_key import APIKeyQuery, APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
@@ -108,6 +110,31 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+async def stream_screen():
+    while True:
+        try:
+            if manager.active_connections:
+                process = await asyncio.create_subprocess_exec(
+                    'adb', 'exec-out', 'screencap', '-p',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                if process.returncode == 0 and stdout:
+                    b64_img = base64.b64encode(stdout).decode('utf-8')
+                    await manager.broadcast({
+                        "type": "screen",
+                        "data": f"data:image/png;base64,{b64_img}"
+                    })
+        except Exception:
+            pass
+        # ~2 FPS max to prevent overwhelming the socket
+        await asyncio.sleep(0.5)
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(stream_screen())
+
 @app.websocket("/ws/connect")
 async def websocket_endpoint(websocket: WebSocket, auth: str = None):
     """Real-time bi-directional bridge for AI telemetry and commands."""
@@ -139,6 +166,11 @@ async def websocket_endpoint(websocket: WebSocket, auth: str = None):
                     # Offload to ADB runtime without blocking the event loop
                     if action == "tap":
                         asyncio.create_task(run_adb_command(['shell', 'input', 'tap', str(payload.get("x", 0)), str(payload.get("y", 0))]))
+                    elif action == "shell":
+                        command = payload.get("command", "")
+                        if command:
+                            args = shlex.split(command)
+                            asyncio.create_task(run_adb_command(['shell'] + args))
                     
                     # Echo log to other clients
                     await manager.broadcast({

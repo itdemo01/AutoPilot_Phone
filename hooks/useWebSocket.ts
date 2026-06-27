@@ -2,29 +2,39 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 interface WebSocketMessage {
   type: string;
-  payload: any;
+  payload?: any;
+  data?: string;
   timestamp?: number;
 }
 
-export function useWebSocket(apiUrl: string) {
+export function useWebSocket(defaultUrl: string = "SIMULATE_LOCAL") {
   const [isConnected, setIsConnected] = useState(false);
   const [latency, setLatency] = useState<number | null>(null);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(null);
+  const [hostUrl, setHostUrl] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     const key = localStorage.getItem("APP_SECRET_KEY");
+    const url = localStorage.getItem("APP_HOST_URL");
     setApiKey(key);
-  }, []);
+    setHostUrl(url || defaultUrl);
+  }, [defaultUrl]);
 
   const saveApiKey = useCallback((key: string) => {
     localStorage.setItem("APP_SECRET_KEY", key);
     setApiKey(key);
   }, []);
 
+  const saveHostUrl = useCallback((url: string) => {
+    localStorage.setItem("APP_HOST_URL", url);
+    setHostUrl(url);
+  }, []);
+
   useEffect(() => {
     let pingTimer: NodeJS.Timeout;
+    const apiUrl = hostUrl || defaultUrl;
 
     // If simulating local for preview visual, don't require API key initially
     if (apiUrl === "SIMULATE_LOCAL") {
@@ -110,7 +120,7 @@ export function useWebSocket(apiUrl: string) {
       clearTimeout(reconnectTimer);
       clearInterval(pingTimer);
     };
-  }, [apiUrl, apiKey]);
+  }, [hostUrl, defaultUrl, apiKey]);
 
   const sendMessage = useCallback((type: string, payload: any) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -118,5 +128,14 @@ export function useWebSocket(apiUrl: string) {
     }
   }, []);
 
-  return { isConnected, latency, lastMessage, sendMessage, apiKey, saveApiKey };
+  return {
+    isConnected,
+    latency,
+    lastMessage,
+    sendMessage,
+    apiKey,
+    saveApiKey,
+    hostUrl,
+    saveHostUrl,
+  };
 }

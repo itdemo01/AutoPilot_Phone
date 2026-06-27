@@ -11,6 +11,8 @@ import {
   MoreVertical,
   Pause,
   Play,
+  User,
+  Lock,
 } from "lucide-react";
 
 export default function TopNav({
@@ -24,6 +26,8 @@ export default function TopNav({
   onOpenModelSettings,
   isSystemPaused,
   onTogglePause,
+  session,
+  onOpenAuth,
 }: {
   isConnected: boolean;
   latency: number | null;
@@ -35,6 +39,8 @@ export default function TopNav({
   onOpenModelSettings: () => void;
   isSystemPaused: boolean;
   onTogglePause: () => void;
+  session?: { username: string; email: string; role: string } | null;
+  onOpenAuth?: () => void;
 }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -180,6 +186,31 @@ export default function TopNav({
             <button className="bg-black border border-zinc-800 text-zinc-400 hover:text-red-400 hover:border-red-500/50 p-2 rounded-lg transition-colors">
               <Power className="w-4 h-4" />
             </button>
+            
+            <div className="w-px h-6 bg-zinc-800"></div>
+
+            {/* User Session Node */}
+            <button
+              onClick={onOpenAuth}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-mono transition-all ${
+                session
+                  ? "bg-indigo-950/40 border-indigo-500/30 text-indigo-300 hover:bg-indigo-950/60 hover:border-indigo-500/50"
+                  : "bg-black border-zinc-800 text-zinc-400 hover:text-indigo-400 hover:border-indigo-500/30"
+              }`}
+              title="Koro Auth Station"
+            >
+              {session ? (
+                <>
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.8)] animate-pulse"></div>
+                  <span className="font-semibold uppercase tracking-wider">{session.username}</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
+                  <span className="font-semibold tracking-wider text-[10px]">KORO AUTH</span>
+                </>
+              )}
+            </button>
           </div>
 
           {/* Settings & Power - Mobile Dropdown */}
@@ -247,6 +278,15 @@ export default function TopNav({
                       className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-3 hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400 rounded-md transition-colors"
                     >
                       <Shield className="w-4 h-4" /> Security Vault
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (onOpenAuth) onOpenAuth();
+                        setIsMenuOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-3 hover:bg-zinc-800 text-zinc-300 hover:text-indigo-400 rounded-md transition-colors"
+                    >
+                      <User className="w-4 h-4 text-indigo-400" /> {session ? `Auth: ${session.username}` : "Koro Auth Station"}
                     </button>
                     <div className="h-px w-full bg-zinc-800 my-1"></div>
                     <button className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-3 hover:bg-zinc-800 text-red-400 rounded-md transition-colors">
