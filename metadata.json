@@ -1,0 +1,11 @@
+{
+  "name": "Zero-Touch Mobile Orchestrator",
+  "description": "An autonomous human-behavior mobile emulator and swarm orchestrator featuring real-time Screen Sharing, AI Vision object detection, an Integrated Browser, and an interactive AI Operator Assistant.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

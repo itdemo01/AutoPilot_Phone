@@ -44,6 +44,7 @@ import {
   Mail,
   Globe,
   Map,
+  Search,
 } from "lucide-react";
 import PerformanceChart from "../components/PerformanceChart";
 import SwarmFleetDashboard from "../components/SwarmFleetDashboard";
@@ -63,6 +64,8 @@ import ClientHunter from "../components/ClientHunter";
 import RealTerminal from "../components/RealTerminal";
 import { useWebSocket } from "../hooks/useWebSocket";
 import UserAuthModal, { UserSession } from "../components/UserAuthModal";
+import HumanBehaviorCopilot from "../components/HumanBehaviorCopilot";
+import RemoteControlDashboard from "../components/RemoteControlDashboard";
 
 export default function Page() {
   const {
@@ -168,6 +171,11 @@ export default function Page() {
     "IDLE" | "AWAIT_CAMERA_CONFIRM"
   >("IDLE");
   const [activeApp, setActiveApp] = useState<string | null>(null);
+  const [browserSearchQuery, setBrowserSearchQuery] = useState("");
+  const [browserSearchResults, setBrowserSearchResults] = useState<{
+    text: string;
+    sources: Array<{ title: string; uri: string }>;
+  } | null>(null);
   const [workflowStates, setWorkflowStates] = useState<string[]>([]);
   const [workflowStep, setWorkflowStep] = useState<number>(0);
   const [workflowHistory, setWorkflowHistory] = useState<
@@ -251,6 +259,50 @@ export default function Page() {
     setSession(null);
     localStorage.removeItem("koro_user_session");
     addLog("Operator session terminated safely.");
+  };
+
+  const handleDownloadReport = () => {
+    const totalTasks = workflowHistory.reduce((acc, entry) => acc + entry.tasksCompleted, 0);
+    const completedWorkflows = workflowHistory.length;
+    
+    let totalDurationMs = 0;
+    const historyData = workflowHistory.map(entry => {
+      const durationMs = new Date(entry.endTime).getTime() - new Date(entry.startTime).getTime();
+      totalDurationMs += durationMs;
+      return {
+        id: entry.id,
+        intent: entry.intent,
+        startTime: entry.startTime,
+        endTime: entry.endTime,
+        durationSeconds: (durationMs / 1000).toFixed(2),
+        tasksCompleted: entry.tasksCompleted,
+      };
+    });
+
+    const successRate = totalTasks > 0 ? "100%" : "N/A";
+
+    const report = {
+      timestamp: new Date().toISOString(),
+      sessionSummary: {
+        totalWorkflowsExecuted: completedWorkflows,
+        totalTasksCompleted: totalTasks,
+        successRate: successRate,
+        totalSessionDurationSeconds: (totalDurationMs / 1000).toFixed(2),
+      },
+      workflows: historyData,
+      devices: devices.map(d => ({ id: d.id, name: d.name })),
+      connectedDevice: selectedDeviceId
+    };
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(report, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `koro_session_report_${new Date().getTime()}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+    
+    addLog("Session report JSON generated and downloaded.");
   };
 
   const executeTap = useCallback((x: number, y: number) => {
@@ -1032,6 +1084,19 @@ export default function Page() {
           />
         </div>
 
+        {/* Full-width Secure Remote Control Dashboard Section */}
+        <div className="lg:col-span-12">
+          <RemoteControlDashboard
+            activeApp={activeApp}
+            setActiveApp={setActiveApp}
+            addLog={addLog}
+            executeTap={executeTap}
+            battery={battery}
+            devices={devices}
+            selectedDeviceId={selectedDeviceId}
+          />
+        </div>
+
         {/* Left Column: Vision & Commands */}
         <div className="lg:col-span-5 flex flex-col gap-4 sm:gap-6">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-4 sm:p-5">
@@ -1126,28 +1191,110 @@ export default function Page() {
                           </div>
                         ) : activeApp === "chrome" ? (
                           <div className="absolute inset-0 bg-white flex flex-col z-30 text-black">
-                            <div className="h-8 bg-zinc-200 flex items-center px-2 shadow-sm shrink-0 gap-1">
-                              <div className="w-3 h-3 text-zinc-500 rounded flex items-center justify-center">
-                                <ShieldAlert className="w-2 h-2" />
-                              </div>
-                              <div className="flex-1 bg-white rounded-full h-4 px-2 flex items-center text-[6px] text-zinc-500 font-mono">
-                                google.com/search?q=info
+                            {/* Browser Header Bar */}
+                            <div className="h-10 bg-zinc-100 border-b border-zinc-200 flex items-center px-2 shadow-sm shrink-0 gap-1.5">
+                              <div className="w-2 h-2 rounded-full bg-red-400" />
+                              <div className="w-2 h-2 rounded-full bg-yellow-400" />
+                              <div className="w-2 h-2 rounded-full bg-green-400" />
+                              <div className="flex-1 bg-white border border-zinc-200 rounded-full h-6 px-3 flex items-center text-[8px] text-zinc-600 font-mono relative overflow-hidden">
+                                <span className="text-zinc-300 mr-1 select-none">https://</span>
+                                <span className="truncate">{browserSearchQuery ? `google.com/search?q=${encodeURIComponent(browserSearchQuery)}` : "google.com"}</span>
                               </div>
                             </div>
-                            <div className="flex-1 p-2 overflow-hidden flex flex-col gap-2">
-                              <div className="w-full h-12 bg-blue-50/50 rounded flex flex-col justify-center px-2">
-                                <div className="w-1/2 h-1 bg-blue-500 mb-1 rounded-full"></div>
-                                <div className="w-3/4 h-1 bg-zinc-300 rounded-full"></div>
-                              </div>
-                              <div className="w-full h-4 bg-zinc-100 rounded-sm"></div>
-                              <div className="w-5/6 h-4 bg-zinc-100 rounded-sm"></div>
-                              <div className="w-full h-12 bg-zinc-100/50 rounded flex gap-1 p-1">
-                                <div className="w-8 h-full bg-zinc-200 rounded"></div>
-                                <div className="flex-1 flex flex-col gap-1 justify-center">
-                                  <div className="w-full h-1 bg-zinc-300 rounded-full"></div>
-                                  <div className="w-2/3 h-1 bg-zinc-300 rounded-full"></div>
+
+                            {/* Browser Web Viewport */}
+                            <div className="flex-1 p-3 overflow-y-auto flex flex-col gap-3 text-xs">
+                              {browserSearchResults ? (
+                                <div className="flex flex-col gap-3 font-sans">
+                                  {/* Result Heading */}
+                                  <div className="border-b border-zinc-100 pb-2">
+                                    <div className="text-[9px] text-zinc-400 font-mono tracking-widest font-semibold uppercase flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                                      AI GROUNDED KNOWLEDGE
+                                    </div>
+                                    <h4 className="text-sm font-bold text-zinc-800 mt-1 leading-snug">
+                                      Query: {browserSearchQuery}
+                                    </h4>
+                                  </div>
+
+                                  {/* Grounded Summary Text */}
+                                  <p className="text-[10px] text-zinc-600 leading-relaxed font-normal bg-zinc-50 p-2.5 rounded-lg border border-zinc-100">
+                                    {browserSearchResults.text}
+                                  </p>
+
+                                  {/* Sources List */}
+                                  <div>
+                                    <div className="text-[8px] text-zinc-400 font-mono font-bold uppercase tracking-wider">
+                                      Verified Citations
+                                    </div>
+                                    <div className="flex flex-col gap-1.5 mt-1.5">
+                                      {browserSearchResults.sources.slice(0, 3).map((source, idx) => (
+                                        <a
+                                          key={idx}
+                                          href={source.uri}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="p-1.5 bg-blue-50/50 hover:bg-blue-50 border border-blue-100/50 rounded flex flex-col text-[8px] text-blue-600 transition-colors"
+                                        >
+                                          <span className="font-semibold truncate">{source.title}</span>
+                                          <span className="text-zinc-400 font-mono truncate font-light mt-0.5">{source.uri}</span>
+                                        </a>
+                                      ))}
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
+                              ) : (
+                                <div className="flex-1 flex flex-col items-center justify-center py-6">
+                                  {/* Google Logo styling */}
+                                  <div className="flex items-center text-lg font-bold tracking-tight mb-4 select-none">
+                                    <span className="text-blue-500">G</span>
+                                    <span className="text-red-500">o</span>
+                                    <span className="text-yellow-500">o</span>
+                                    <span className="text-blue-500">g</span>
+                                    <span className="text-green-500">l</span>
+                                    <span className="text-red-500">e</span>
+                                  </div>
+
+                                  <div className="w-full max-w-[220px] relative">
+                                    <input
+                                      type="text"
+                                      placeholder="Search web with AI grounding..."
+                                      value={browserSearchQuery}
+                                      onChange={(e) => setBrowserSearchQuery(e.target.value)}
+                                      onKeyDown={async (e) => {
+                                        if (e.key === "Enter" && browserSearchQuery.trim()) {
+                                          addLog(`[INTEGRATED BROWSER] Query initiated from phone emulator: "${browserSearchQuery}"`);
+                                          // Trigger search
+                                          try {
+                                            const res = await fetch("/api/gemini", {
+                                              method: "POST",
+                                              headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({
+                                                action: "search",
+                                                prompt: browserSearchQuery,
+                                              }),
+                                            });
+                                            const d = await res.json();
+                                            if (d.error) throw new Error(d.error);
+                                            setBrowserSearchResults({
+                                              text: d.text,
+                                              sources: d.sources || [],
+                                            });
+                                          } catch (err: any) {
+                                            addLog(`error: Grounded query failed: ${err.message}`);
+                                          }
+                                        }
+                                      }}
+                                      className="w-full border border-zinc-200 rounded-full h-8 px-8 text-[9px] focus:outline-none focus:border-blue-400 font-sans text-center bg-zinc-50 hover:bg-zinc-100/50 transition-colors"
+                                    />
+                                    <Search className="w-3 h-3 text-zinc-300 absolute left-3.5 top-2.5" />
+                                  </div>
+
+                                  <p className="text-[8px] text-zinc-400 font-mono mt-4 max-w-[180px] text-center leading-normal">
+                                    Type query and press Enter. Live Google-grounded summaries will populate above.
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           </div>
                         ) : activeApp === "maps" ? (
@@ -1505,6 +1652,28 @@ export default function Page() {
             </form>
           </div>
 
+          {/* How It Works Card */}
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 md:p-5">
+            <h4 className="text-xs font-bold text-emerald-400 tracking-wider font-mono uppercase mb-3 flex items-center gap-2">
+              <BrainCircuit className="w-4 h-4" /> 
+              How Zero-Touch Execution Works
+            </h4>
+            <div className="space-y-3">
+              <div className="bg-black/30 border border-zinc-800/60 rounded p-3 text-xs">
+                <span className="font-bold text-zinc-200">1. Screen Analysis:</span> 
+                <span className="text-zinc-400 ml-2">The app continuously captures and sends the visual content of your screen to an AI model.</span>
+              </div>
+              <div className="bg-black/30 border border-zinc-800/60 rounded p-3 text-xs">
+                <span className="font-bold text-zinc-200">2. Cognitive Decision Making:</span> 
+                <span className="text-zinc-400 ml-2">The AI "thinks" about the current interface, interprets what is happening, and determines the necessary next step to fulfill your instructions.</span>
+              </div>
+              <div className="bg-black/30 border border-zinc-800/60 rounded p-3 text-xs">
+                <span className="font-bold text-zinc-200">3. Action Execution:</span> 
+                <span className="text-zinc-400 ml-2">Once the model identifies the correct location, it uses Android’s built-in Accessibility Service to simulate a human tap or interaction at those specific coordinates.</span>
+              </div>
+            </div>
+          </div>
+
           {/* Phone Dashboard & Task Manager is now rendered in full-width at the top of the main container */}
         </div>
 
@@ -1588,6 +1757,23 @@ export default function Page() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          <HumanBehaviorCopilot
+            activeApp={activeApp}
+            setActiveApp={setActiveApp}
+            addLog={addLog}
+            executeTap={executeTap}
+            setDetectedUINodes={setDetectedUINodes}
+            zeroTouchIntent={zeroTouchIntent}
+            setZeroTouchIntent={setZeroTouchIntent}
+            setIsAutonomousActive={setIsAutonomousActive}
+            selectedDeviceId={selectedDeviceId}
+            devices={devices}
+            browserSearchQuery={browserSearchQuery}
+            setBrowserSearchQuery={setBrowserSearchQuery}
+            browserSearchResults={browserSearchResults}
+            setBrowserSearchResults={setBrowserSearchResults}
+          />
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl shadow-lg">
@@ -2322,14 +2508,22 @@ export default function Page() {
       />
 
       {/* Global Footer */}
-      <footer className="w-full border-t border-zinc-800 bg-zinc-950/80 backdrop-blur-md py-6 px-4 sm:px-6 mt-12 text-center" id="global-footer">
+      <footer className="w-full border-t-2 border-indigo-500/40 bg-[#020205] shadow-[0_-4px_20px_rgba(99,102,241,0.15)] py-6 px-4 sm:px-6 mt-12 text-center" id="global-footer">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-zinc-500 text-xs font-mono">
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
             <span className="text-zinc-400 font-bold tracking-wider">KORO AUTOMATION ENGINE</span>
             <span className="text-zinc-600">v1.2.0</span>
           </div>
-          <div>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleDownloadReport}
+              className="flex items-center gap-1.5 hover:text-zinc-300 transition-colors bg-zinc-900 border border-zinc-800 hover:border-zinc-700 px-3 py-1.5 rounded"
+              title="Download JSON Report"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download Session Report
+            </button>
             <span>© 2026 Koro. All rights reserved.</span>
           </div>
         </div>

@@ -33,6 +33,11 @@ import {
   ToggleLeft,
   ToggleRight,
   Eye,
+  MousePointer,
+  Keyboard,
+  Key,
+  Settings,
+  Activity,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -98,8 +103,44 @@ export default function PhoneDashboardManager({
   // Shell Command Input
   const [customShellCmd, setCustomShellCmd] = useState("");
 
-  // Tab State: Automation Scripts vs Trigger-Action Rules
-  const [activeTab, setActiveTab] = useState<"scripts" | "rules">("rules");
+  // Tab State: Automation Scripts vs Trigger-Action Rules vs Remote Control & Mirroring
+  const [activeTab, setActiveTab] = useState<"scripts" | "rules" | "remote">("rules");
+
+  // Remote Control & Mirroring States
+  const [isMirroringActive, setIsMirroringActive] = useState(true);
+  const [mirrorFps, setMirrorFps] = useState(30);
+  const [mirrorQuality, setMirrorQuality] = useState(85);
+  const [mirrorLatency, setMirrorLatency] = useState(14);
+  const [mirrorBitrate, setMirrorBitrate] = useState(2.4);
+  const [isKeyboardCaptured, setIsKeyboardCaptured] = useState(false);
+  const [lastTypedKey, setLastTypedKey] = useState<string>("");
+  const [typedBuffer, setTypedBuffer] = useState<string>("");
+  const [remotePin, setRemotePin] = useState("849302");
+  const [enteredPin, setEnteredPin] = useState("");
+  const [isRemoteAuthorized, setIsRemoteAuthorized] = useState(true);
+  const [encryptionLevel, setEncryptionLevel] = useState("AES-256-GCM");
+  
+  // Permissions
+  const [allowTouch, setAllowTouch] = useState(true);
+  const [allowKeys, setAllowKeys] = useState(true);
+  const [allowClipboard, setAllowClipboard] = useState(true);
+  const [allowReboot, setAllowReboot] = useState(false);
+
+  // Connection settings
+  const [allowedIpRange, setAllowedIpRange] = useState("192.168.1.0/24");
+  
+  // Local interaction coordinate state for feedback
+  const [hoverCoord, setHoverCoord] = useState<{ x: number; y: number } | null>(null);
+  const [remoteClicks, setRemoteClicks] = useState<{ id: number; x: number; y: number }[]>([]);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+
+  // Security Audit Log State
+  const [securityLogs, setSecurityLogs] = useState<string[]>([
+    `[10:30:15] Security handshake completed: ECDH Prime256v1.`,
+    `[10:30:15] Authorized remote agent: PC-CHROME-WIN11.`,
+    `[10:31:02] Token validation successful.`,
+    `[10:32:45] Touch injection interface initialized.`
+  ]);
 
   // Script Add/Edit states
   const [editingScriptId, setEditingScriptId] = useState<number | null>(null);
@@ -193,6 +234,65 @@ export default function PhoneDashboardManager({
     }
     return () => clearInterval(interval);
   }, [isCharging, setBattery, addLog]);
+
+  // Keyboard Input Capture listener
+  useEffect(() => {
+    if (!isKeyboardCaptured || !isRemoteAuthorized) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent browser shortcuts when capturing
+      if (e.key === "Tab" || e.key === "Escape" || e.key === "Backspace" || e.key === "Enter") {
+        e.preventDefault();
+      }
+
+      // Handle Backspace
+      if (e.key === "Backspace") {
+        setTypedBuffer((prev) => prev.slice(0, -1));
+        setLastTypedKey("BACKSPACE");
+        runAdbCommand("input keyevent 67", "Inject KEYCODE_DEL (Backspace)");
+        return;
+      }
+
+      // Handle Enter
+      if (e.key === "Enter") {
+        setLastTypedKey("ENTER");
+        runAdbCommand("input keyevent 66", "Inject KEYCODE_ENTER (Enter)");
+        addLog(`[REMOTE CONTROL] Submitted keyboard buffer: "${typedBuffer}"`);
+        setTypedBuffer("");
+        return;
+      }
+
+      // Capture single alphanumeric characters & spaces
+      if (e.key.length === 1) {
+        const char = e.key;
+        setLastTypedKey(char);
+        setTypedBuffer((prev) => prev + char);
+        
+        let adbText = char;
+        if (char === " ") adbText = "%s"; 
+        
+        runAdbCommand(`input text "${adbText}"`, `Inject Character Key '${char}'`);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isKeyboardCaptured, isRemoteAuthorized, typedBuffer]);
+
+  // Simulate remote mirror network latency fluctuations
+  useEffect(() => {
+    if (!isMirroringActive) return;
+    const interval = setInterval(() => {
+      const delta = Math.floor(Math.random() * 5) - 2; 
+      setMirrorLatency((prev) => Math.max(8, Math.min(35, prev + delta)));
+      
+      const bDelta = (Math.random() * 0.4) - 0.2;
+      setMirrorBitrate((prev) => Math.max(1.1, Math.min(4.8, Number((prev + bDelta).toFixed(2)))));
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [isMirroringActive]);
 
   // CPU Fluctuations
   useEffect(() => {
@@ -699,50 +799,67 @@ export default function PhoneDashboardManager({
         </div>
       </div>
 
-      {/* 2. Automated Tasks Module with dual tabs (Automation Scripts & Rule Builder) */}
+      {/* 2. Automated Tasks Module with triple tabs (Automation Scripts, Rule Builder, and Remote Control) */}
       <div className="md:col-span-6 bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-5 flex flex-col gap-4">
-        <div className="flex justify-between items-center border-b border-zinc-850 pb-2">
-          {/* Dual Tab Controller */}
-          <div className="flex bg-black/40 border border-zinc-800 p-1 rounded-lg">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-zinc-850 pb-2 gap-2">
+          {/* Triple Tab Controller */}
+          <div className="flex bg-black/40 border border-zinc-800 p-1 rounded-lg flex-wrap gap-1">
             <button
               onClick={() => setActiveTab("rules")}
-              className={`text-xs px-3.5 py-1.5 rounded-md font-bold tracking-wide uppercase transition-all flex items-center gap-1.5 ${
+              className={`text-[11px] px-2.5 py-1.5 rounded-md font-bold tracking-wide uppercase transition-all flex items-center gap-1.5 ${
                 activeTab === "rules"
                   ? "bg-indigo-500 text-white shadow-md"
                   : "text-zinc-400 hover:text-zinc-200"
               }`}
             >
               <Zap className="w-3.5 h-3.5" />
-              Trigger Rules
+              Rules
             </button>
             <button
               onClick={() => setActiveTab("scripts")}
-              className={`text-xs px-3.5 py-1.5 rounded-md font-bold tracking-wide uppercase transition-all flex items-center gap-1.5 ${
+              className={`text-[11px] px-2.5 py-1.5 rounded-md font-bold tracking-wide uppercase transition-all flex items-center gap-1.5 ${
                 activeTab === "scripts"
                   ? "bg-indigo-500 text-white shadow-md"
                   : "text-zinc-400 hover:text-zinc-200"
               }`}
             >
               <Sliders className="w-3.5 h-3.5" />
-              ADB Scripts
+              Scripts
+            </button>
+            <button
+              onClick={() => setActiveTab("remote")}
+              className={`text-[11px] px-2.5 py-1.5 rounded-md font-bold tracking-wide uppercase transition-all flex items-center gap-1.5 ${
+                activeTab === "remote"
+                  ? "bg-emerald-600 text-white shadow-md"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <MousePointer className="w-3.5 h-3.5" />
+              Remote
             </button>
           </div>
 
-          <button
-            onClick={() => {
-              if (activeTab === "rules") {
-                setIsAddingRule(!isAddingRule);
-                setIsAddingScript(false);
-              } else {
-                setIsAddingScript(!isAddingScript);
-                setIsAddingRule(false);
-              }
-            }}
-            className="text-xs bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-lg font-bold uppercase transition-all flex items-center gap-1"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            {activeTab === "rules" ? "Add Rule" : "Upload Script"}
-          </button>
+          {activeTab !== "remote" ? (
+            <button
+              onClick={() => {
+                if (activeTab === "rules") {
+                  setIsAddingRule(!isAddingRule);
+                  setIsAddingScript(false);
+                } else {
+                  setIsAddingScript(!isAddingScript);
+                  setIsAddingRule(false);
+                }
+              }}
+              className="text-xs bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-lg font-bold uppercase transition-all flex items-center gap-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              {activeTab === "rules" ? "Add Rule" : "Upload Script"}
+            </button>
+          ) : (
+            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-1 rounded font-mono font-bold tracking-widest uppercase">
+              Encrypted Session
+            </span>
+          )}
         </div>
 
         {/* 2A. Rules Tab content */}
@@ -1231,6 +1348,541 @@ export default function PhoneDashboardManager({
                   );
                 })
               )}
+            </div>
+          </div>
+        )}
+
+        {/* 2C. Remote Control & Mirroring Tab Content */}
+        {activeTab === "remote" && (
+          <div className="flex flex-col gap-5 flex-1">
+            {/* Mirror Stream Status Header */}
+            <div className="bg-black/40 border border-zinc-800 rounded-lg p-3.5 flex flex-col gap-2 font-mono">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400 font-bold flex items-center gap-1.5 uppercase">
+                  <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
+                  Live Mirror Feed
+                </span>
+                <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${isMirroringActive ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
+                  {isMirroringActive ? "STREAMING" : "STREAM OFFLINE"}
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-4 gap-2 text-[10px] text-zinc-500 border-t border-zinc-800/60 pt-2 mt-1">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[8px] uppercase tracking-wider text-zinc-600">Latency</span>
+                  <span className="text-zinc-300 font-bold">{isMirroringActive ? `${mirrorLatency} ms` : "N/A"}</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[8px] uppercase tracking-wider text-zinc-600">FPS Limit</span>
+                  <span className="text-zinc-300 font-bold">{isMirroringActive ? `${mirrorFps} FPS` : "N/A"}</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[8px] uppercase tracking-wider text-zinc-600">Bitrate</span>
+                  <span className="text-zinc-300 font-bold">{isMirroringActive ? `${mirrorBitrate} Mbps` : "N/A"}</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[8px] uppercase tracking-wider text-zinc-600">Tunnel</span>
+                  <span className="text-emerald-400 font-bold">{isMirroringActive ? encryptionLevel : "N/A"}</span>
+                </div>
+              </div>
+
+              {/* Live Streaming Controls */}
+              <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-zinc-800/60">
+                <button
+                  onClick={() => {
+                    setIsMirroringActive(!isMirroringActive);
+                    addLog(isMirroringActive ? "[REMOTE] Stopped screen mirroring stream." : "[REMOTE] Established secure mirroring connection over WebSocket tunnel.");
+                    const logMsg = isMirroringActive ? "Screen mirroring stream disabled by operator." : "Secure screen mirroring stream started.";
+                    setSecurityLogs(prev => [`[${new Date().toLocaleTimeString()}] ${logMsg}`, ...prev]);
+                  }}
+                  className={`text-[10px] font-bold px-3 py-1.5 rounded transition-all flex items-center gap-1 uppercase ${
+                    isMirroringActive 
+                      ? "bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20"
+                      : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20"
+                  }`}
+                >
+                  {isMirroringActive ? "Stop Stream" : "Start Stream"}
+                </button>
+                
+                {isMirroringActive && (
+                  <>
+                    <select
+                      value={mirrorFps}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setMirrorFps(val);
+                        addLog(`[REMOTE] Adjusted screen mirror stream rate to ${val} FPS.`);
+                      }}
+                      className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-[10px] text-zinc-300 font-mono"
+                    >
+                      <option value={15}>15 FPS</option>
+                      <option value={30}>30 FPS</option>
+                      <option value={60}>60 FPS (Ultra)</option>
+                    </select>
+
+                    <div className="flex items-center gap-1.5 ml-auto text-[10px] text-zinc-400">
+                      <span>Quality:</span>
+                      <input
+                        type="range"
+                        min={10}
+                        max={100}
+                        value={mirrorQuality}
+                        onChange={(e) => setMirrorQuality(Number(e.target.value))}
+                        className="w-16 h-1 bg-zinc-800 rounded accent-emerald-500 cursor-pointer"
+                        title={`Stream Compression Quality: ${mirrorQuality}%`}
+                      />
+                      <span>{mirrorQuality}%</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Mirror Stream Screen Interactive Window */}
+            <div className="relative border border-zinc-800 bg-zinc-950 rounded-xl overflow-hidden p-6 flex flex-col items-center justify-center min-h-[380px] shadow-2xl group/screen">
+              {!isRemoteAuthorized ? (
+                <div className="flex flex-col items-center justify-center p-6 text-center max-w-xs gap-3">
+                  <Lock className="w-10 h-10 text-amber-500 animate-bounce" />
+                  <h4 className="text-sm font-bold text-zinc-200">Device Handshake Required</h4>
+                  <p className="text-xs text-zinc-500 font-mono">Enter the 6-digit Remote Authorization PIN that is shown on the target phone.</p>
+                  <div className="flex gap-2 w-full mt-2">
+                    <input
+                      type="text"
+                      maxLength={6}
+                      placeholder="ENTER PIN"
+                      value={enteredPin}
+                      onChange={(e) => setEnteredPin(e.target.value.replace(/\D/g, ""))}
+                      className="bg-black border border-zinc-800 text-emerald-400 text-center font-mono text-sm tracking-widest p-2 rounded-lg flex-1 focus:outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      onClick={() => {
+                        if (enteredPin === remotePin) {
+                          setIsRemoteAuthorized(true);
+                          addLog("[REMOTE] Device authorization handshake successful.");
+                          setSecurityLogs(prev => [`[${new Date().toLocaleTimeString()}] Handshake success. Operator authorized.`, ...prev]);
+                        } else {
+                          addLog("error: Incorrect security PIN entered for remote mirror.");
+                          setSecurityLogs(prev => [`[${new Date().toLocaleTimeString()}] Security Warning: Unauthorized PIN attempt.`, ...prev]);
+                        }
+                      }}
+                      className="bg-emerald-500 text-black px-4 py-2 rounded-lg text-xs font-bold font-mono hover:bg-emerald-400"
+                    >
+                      Verify
+                    </button>
+                  </div>
+                </div>
+              ) : !isMirroringActive ? (
+                <div className="flex flex-col items-center justify-center p-6 text-center gap-2">
+                  <Smartphone className="w-12 h-12 text-zinc-700 mb-2 animate-pulse" />
+                  <p className="text-xs text-zinc-400 font-mono">Stream Offline</p>
+                  <button
+                    onClick={() => {
+                      setIsMirroringActive(true);
+                      addLog("[REMOTE] Started screen mirroring stream.");
+                    }}
+                    className="mt-3 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850 px-4 py-2 rounded-lg text-xs font-bold text-zinc-300"
+                  >
+                    Establish Secure Tunnel
+                  </button>
+                </div>
+              ) : (
+                <div className="relative w-full flex flex-col items-center select-none">
+                  {/* Phone Screen Canvas Frame */}
+                  <div
+                    onMouseMove={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickX = e.clientX - rect.left;
+                      const clickY = e.clientY - rect.top;
+                      const pctX = Math.max(0, Math.min(100, (clickX / rect.width) * 100));
+                      const pctY = Math.max(0, Math.min(100, (clickY / rect.height) * 100));
+                      
+                      // map to standard 1080x2400
+                      const mappedX = Math.round((pctX / 100) * 1080);
+                      const mappedY = Math.round((pctY / 100) * 2400);
+                      setHoverCoord({ x: mappedX, y: mappedY });
+                    }}
+                    onMouseLeave={() => setHoverCoord(null)}
+                    onMouseDown={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickX = e.clientX - rect.left;
+                      const clickY = e.clientY - rect.top;
+                      const pctX = (clickX / rect.width) * 100;
+                      const pctY = (clickY / rect.height) * 100;
+                      setDragStart({ x: Math.round((pctX / 100) * 1080), y: Math.round((pctY / 100) * 2400) });
+                    }}
+                    onMouseUp={(e) => {
+                      if (!allowTouch) {
+                        addLog("[SECURITY] Touch injection is disabled in remote permissions.");
+                        setSecurityLogs(prev => [`[${new Date().toLocaleTimeString()}] Warning: Blocked touch injection (permission restricted).`, ...prev]);
+                        setDragStart(null);
+                        return;
+                      }
+
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickX = e.clientX - rect.left;
+                      const clickY = e.clientY - rect.top;
+                      const pctX = Math.max(0, Math.min(100, (clickX / rect.width) * 100));
+                      const pctY = Math.max(0, Math.min(100, (clickY / rect.height) * 100));
+                      
+                      const mappedX = Math.round((pctX / 100) * 1080);
+                      const mappedY = Math.round((pctY / 100) * 2400);
+
+                      if (dragStart) {
+                        const dist = Math.sqrt(Math.pow(mappedX - dragStart.x, 2) + Math.pow(mappedY - dragStart.y, 2));
+                        if (dist > 120) {
+                          // Trigger Swipe ADB
+                          addLog(`[REMOTE] Swiped from (X: ${dragStart.x}, Y: ${dragStart.y}) to (X: ${mappedX}, Y: ${mappedY})`);
+                          runAdbCommand(`input swipe ${dragStart.x} ${dragStart.y} ${mappedX} ${mappedY} 350`, `Inject Swipe gesture from (${dragStart.x},${dragStart.y}) to (${mappedX},${mappedY})`);
+                          setDragStart(null);
+                          return;
+                        }
+                      }
+
+                      // Trigger Tap ADB
+                      const newClickId = Date.now();
+                      setRemoteClicks(prev => [...prev, { id: newClickId, x: pctX, y: pctY }]);
+                      setTimeout(() => {
+                        setRemoteClicks(prev => prev.filter(c => c.id !== newClickId));
+                      }, 800);
+
+                      addLog(`[REMOTE CONTROL] Mouse CLICK coordinate resolved: (X: ${mappedX}px, Y: ${mappedY}px) [${Math.round(pctX)}%, ${Math.round(pctY)}%]`);
+                      runAdbCommand(`input tap ${mappedX} ${mappedY}`, `Inject Touch tap coordinate at (${mappedX}, ${mappedY})`);
+                      setDragStart(null);
+                    }}
+                    className="relative w-[240px] h-[440px] bg-zinc-950 border-[6px] border-zinc-800 rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col cursor-crosshair hover:border-emerald-500/40 transition-colors"
+                  >
+                    {/* Simulated OS View */}
+                    <div className="h-5 w-full bg-zinc-950 flex items-center justify-between px-3 text-[8px] text-zinc-400 font-mono select-none">
+                      <span>10:30 AM</span>
+                      <div className="flex items-center gap-[4px]">
+                        <Wifi className="w-2.5 h-2.5 text-emerald-400" />
+                        <Activity className="w-2.5 h-2.5 text-emerald-400 animate-pulse" />
+                        <span>{Math.round(battery)}%</span>
+                      </div>
+                    </div>
+
+                    {/* Content Viewport */}
+                    <div className="flex-1 bg-gradient-to-b from-zinc-900 to-black relative flex flex-col p-3 text-zinc-200">
+                      {/* Interactive Mirror Feed Placeholder App Content */}
+                      <div className="flex-1 flex flex-col justify-between py-2 text-center select-none pointer-events-none">
+                        <div className="flex flex-col items-center">
+                          <Smartphone className="w-8 h-8 text-emerald-400 mb-1 opacity-70" />
+                          <span className="text-[9px] text-emerald-400/80 font-mono tracking-widest font-bold uppercase">Koro ADB Mirror</span>
+                          <span className="text-[8px] text-zinc-500 mt-0.5">Control Enabled • Secure AES TLS</span>
+                        </div>
+
+                        {/* Interactive UI Nodes Mockup */}
+                        <div className="bg-zinc-900/60 border border-zinc-800 rounded p-2 text-left font-mono text-[8px] space-y-1.5 shadow-inner">
+                          <div className="flex justify-between border-b border-zinc-800 pb-1">
+                            <span className="text-zinc-500">SYSTEM AGENT ACTIVE</span>
+                            <span className="text-emerald-400 animate-pulse">● LIVE</span>
+                          </div>
+                          <div><span className="text-zinc-400">HOST:</span> <span className="text-zinc-300">{activeDevice?.name || "Android Device"}</span></div>
+                          <div><span className="text-zinc-400">ACCESSIBILITY:</span> <span className="text-emerald-400">GRANTED</span></div>
+                          <div><span className="text-zinc-400">DRAG/SWIPE:</span> <span className="text-zinc-500">Hold & drag mouse</span></div>
+                        </div>
+
+                        <div className="text-[7px] text-zinc-600 font-mono uppercase tracking-wider">
+                          Click screen to simulate tap<br />
+                          Hold & drag mouse to simulate swipe
+                        </div>
+                      </div>
+
+                      {/* Ripple Clicks Feedbacks */}
+                      {remoteClicks.map((click) => (
+                        <div
+                          key={click.id}
+                          className="absolute pointer-events-none w-8 h-8 -ml-4 -mt-4 flex items-center justify-center"
+                          style={{ left: `${click.x}%`, top: `${click.y}%` }}
+                        >
+                          <div className="absolute w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,1)]"></div>
+                          <motion.div
+                            initial={{ scale: 0.5, opacity: 1 }}
+                            animate={{ scale: 3.5, opacity: 0 }}
+                            transition={{ duration: 0.7, ease: "easeOut" }}
+                            className="absolute w-full h-full border-2 border-emerald-400 rounded-full"
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Bottom Navigation Pills */}
+                    <div className="h-6 w-full bg-zinc-950 flex items-center justify-around px-2 text-[10px] text-zinc-600 shrink-0 select-none">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          runAdbCommand("input keyevent 4", "Inject System Back button");
+                        }} 
+                        className="hover:text-zinc-300 transition-colors"
+                      >
+                        ◀
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          runAdbCommand("input keyevent 3", "Inject System Home button");
+                        }} 
+                        className="w-2.5 h-2.5 rounded-full border border-zinc-600 hover:border-zinc-300 transition-all"
+                      />
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          runAdbCommand("input keyevent 187", "Inject System Apps switcher button");
+                        }} 
+                        className="w-2 h-2 border border-zinc-600 hover:border-zinc-300 rounded-sm transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Coordinate Overlay HUD */}
+                  {hoverCoord && (
+                    <div className="absolute bottom-[-15px] bg-zinc-900/95 border border-zinc-800 rounded px-2.5 py-1 text-[9px] font-mono text-emerald-400 shadow-md">
+                      MOUSE POS: <span className="font-bold text-zinc-100">X: {hoverCoord.x}px, Y: {hoverCoord.y}px</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Keyboard Control Hub */}
+            {isRemoteAuthorized && isMirroringActive && (
+              <div className="bg-black/30 border border-zinc-800 rounded-lg p-3.5 flex flex-col gap-3 font-mono">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-300 font-bold uppercase">
+                    <Keyboard className="w-4 h-4 text-emerald-400" />
+                    Keyboard Access Protocol
+                  </div>
+                  
+                  {/* Keyboard Capture Toggle */}
+                  <button
+                    onClick={() => {
+                      const nextCap = !isKeyboardCaptured;
+                      setIsKeyboardCaptured(nextCap);
+                      addLog(nextCap ? "[REMOTE] Keyboard interceptor enabled. All keystrokes redirected." : "[REMOTE] Keyboard interceptor disabled.");
+                      setSecurityLogs(prev => [`[${new Date().toLocaleTimeString()}] Keyboard capture: ${nextCap ? "ENABLED" : "DISABLED"}`, ...prev]);
+                    }}
+                    className={`text-[9px] font-bold px-3 py-1 rounded transition-all uppercase border ${
+                      isKeyboardCaptured 
+                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.1)]"
+                        : "bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300"
+                    }`}
+                  >
+                    {isKeyboardCaptured ? "Capture Enabled" : "Enable Capture"}
+                  </button>
+                </div>
+
+                {isKeyboardCaptured ? (
+                  <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-lg p-3 flex flex-col gap-2">
+                    <div className="text-[10px] text-emerald-400/80 font-bold flex items-center gap-1.5 animate-pulse">
+                      <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping" />
+                      SYSTEM KEYBOARD HOOKED
+                    </div>
+                    <p className="text-[10px] text-zinc-500 leading-normal">
+                      All physical keyboard inputs will be intercepted and injected directly to your phone via ADB. Click anywhere outside or toggle off to release cursor.
+                    </p>
+                    
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      <div className="bg-zinc-950 p-2 rounded border border-zinc-850">
+                        <div className="text-[8px] text-zinc-600 uppercase">Last Key Injected</div>
+                        <div className="text-xs text-zinc-200 font-bold mt-0.5">{lastTypedKey || "NONE"}</div>
+                      </div>
+                      <div className="bg-zinc-950 p-2 rounded border border-zinc-850">
+                        <div className="text-[8px] text-zinc-600 uppercase">Input Buffer</div>
+                        <div className="text-xs text-emerald-400 font-bold truncate mt-0.5">{typedBuffer || "EMPTY"}</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-zinc-500 bg-zinc-950/40 p-2.5 rounded border border-zinc-900/60">
+                    Physical computer keyboard inputs are routed locally. Toggle capture mode above to start typing directly into your connected smartphone emulator fields.
+                  </div>
+                )}
+
+                {/* Virtual Key Buttons Bar */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="text-[8px] text-zinc-600 uppercase tracking-wider font-bold">Quick Injections</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: "BACKSPACE", cmd: "input keyevent 67" },
+                      { label: "ENTER", cmd: "input keyevent 66" },
+                      { label: "SPACE", cmd: "input text %s" },
+                      { label: "TAB", cmd: "input keyevent 61" },
+                      { label: "VOLUME UP", cmd: "input keyevent 24" },
+                      { label: "VOLUME DOWN", cmd: "input keyevent 25" },
+                      { label: "BRIGHTNESS UP", cmd: "settings put system screen_brightness 220" },
+                      { label: "BRIGHTNESS DOWN", cmd: "settings put system screen_brightness 50" },
+                    ].map((btn, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          if (!allowKeys) {
+                            addLog("[SECURITY] Key injection is disabled in remote permissions.");
+                            return;
+                          }
+                          addLog(`[REMOTE] Injected virtual key event: "${btn.label}"`);
+                          runAdbCommand(btn.cmd, `Inject quick virtual key: ${btn.label}`);
+                        }}
+                        className="bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-[9px] text-zinc-400 hover:text-zinc-200 px-2.5 py-1.5 rounded transition-all font-bold"
+                      >
+                        {btn.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Security Parameters & Authentication Panel */}
+            <div className="bg-black/30 border border-zinc-800 rounded-lg p-3.5 flex flex-col gap-3 font-mono">
+              <span className="text-xs text-zinc-300 font-bold flex items-center gap-1.5 uppercase">
+                <Shield className="w-4 h-4 text-emerald-500" />
+                Remote Security Parameters
+              </span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-1">
+                {/* Authorization token pin change block */}
+                <div className="bg-zinc-950 p-3 rounded border border-zinc-850 flex flex-col gap-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-zinc-400 uppercase font-bold flex items-center gap-1">
+                      <Key className="w-3 h-3 text-emerald-400" /> Remote Access PIN
+                    </span>
+                    <button
+                      onClick={() => {
+                        const newPin = Math.floor(100000 + Math.random() * 900000).toString();
+                        setRemotePin(newPin);
+                        addLog(`[SECURITY] Generated new Remote Access PIN: ${newPin}`);
+                        setSecurityLogs(prev => [`[${new Date().toLocaleTimeString()}] Regenerated access PIN code: ${newPin}`, ...prev]);
+                      }}
+                      className="text-[8px] text-indigo-400 hover:text-indigo-300 underline uppercase"
+                    >
+                      Regenerate
+                    </button>
+                  </div>
+                  <div className="text-sm font-bold text-emerald-400 tracking-widest bg-black/60 px-3 py-1.5 rounded border border-zinc-900 text-center select-all">
+                    {remotePin}
+                  </div>
+                  <span className="text-[8px] text-zinc-600 leading-normal">
+                    This security PIN code is generated dynamically by target device and is required to authorize the computer's connection control.
+                  </span>
+                </div>
+
+                {/* Secure Tunnel Select block */}
+                <div className="bg-zinc-950 p-3 rounded border border-zinc-850 flex flex-col gap-2">
+                  <span className="text-[10px] text-zinc-400 uppercase font-bold flex items-center gap-1">
+                    <Settings className="w-3 h-3 text-emerald-400" /> Encryption Socket
+                  </span>
+                  <select
+                    value={encryptionLevel}
+                    onChange={(e) => {
+                      setEncryptionLevel(e.target.value);
+                      addLog(`[SECURITY] Encryption mode switched to: ${e.target.value}`);
+                      setSecurityLogs(prev => [`[${new Date().toLocaleTimeString()}] Socket encryption changed to: ${e.target.value}`, ...prev]);
+                    }}
+                    className="bg-black border border-zinc-800 rounded p-1.5 text-xs text-zinc-300 font-mono focus:outline-none"
+                  >
+                    <option value="AES-256-GCM">AES-256-GCM Secure Tunnel</option>
+                    <option value="ChaCha20-Poly1305">ChaCha20-Poly1305 RFC7539</option>
+                    <option value="SSL/TLS Handshake">SSL/TLS Socket Handshake</option>
+                    <option value="Unencrypted Raw">Unencrypted Raw LAN (Fastest)</option>
+                  </select>
+                  <span className="text-[8px] text-zinc-600 leading-normal">
+                    Selects the algorithmic cipher suite to envelope WebRTC visual frames and keystroke command buffers.
+                  </span>
+                </div>
+              </div>
+
+              {/* Checkboxes with custom styling */}
+              <div className="bg-zinc-950 p-3 rounded border border-zinc-850 flex flex-col gap-2.5">
+                <span className="text-[10px] text-zinc-400 uppercase font-bold">Tunnel Permission Ruleset</span>
+                <div className="grid grid-cols-2 gap-2 text-[9px] text-zinc-400">
+                  <label className="flex items-center gap-2 cursor-pointer hover:text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={allowTouch}
+                      onChange={(e) => {
+                        setAllowTouch(e.target.checked);
+                        addLog(`[SECURITY] Touch coordinates injection set to ${e.target.checked ? "ENABLED" : "DISABLED"}`);
+                        setSecurityLogs(prev => [`[${new Date().toLocaleTimeString()}] Permission modified: AllowTouch = ${e.target.checked}`, ...prev]);
+                      }}
+                      className="rounded bg-black border-zinc-800 text-emerald-500 focus:ring-0"
+                    />
+                    Allow Touch Simulation
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer hover:text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={allowKeys}
+                      onChange={(e) => {
+                        setAllowKeys(e.target.checked);
+                        addLog(`[SECURITY] Keyboard strokes injection set to ${e.target.checked ? "ENABLED" : "DISABLED"}`);
+                        setSecurityLogs(prev => [`[${new Date().toLocaleTimeString()}] Permission modified: AllowKeys = ${e.target.checked}`, ...prev]);
+                      }}
+                      className="rounded bg-black border-zinc-800 text-emerald-500 focus:ring-0"
+                    />
+                    Allow Key Simulation
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer hover:text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={allowClipboard}
+                      onChange={(e) => {
+                        setAllowClipboard(e.target.checked);
+                        addLog(`[SECURITY] Bidirectional clipboard synchronization set to ${e.target.checked ? "ENABLED" : "DISABLED"}`);
+                      }}
+                      className="rounded bg-black border-zinc-800 text-emerald-500 focus:ring-0"
+                    />
+                    Allow Clipboard Sync
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer hover:text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={allowReboot}
+                      onChange={(e) => {
+                        setAllowReboot(e.target.checked);
+                        addLog(`[SECURITY] ADB Reboot privileges set to ${e.target.checked ? "ENABLED" : "DISABLED"}`);
+                      }}
+                      className="rounded bg-black border-zinc-800 text-emerald-500 focus:ring-0"
+                    />
+                    Allow ADB Remote Reboot
+                  </label>
+                </div>
+              </div>
+
+              {/* IP Whitelist constraint */}
+              <div className="bg-zinc-950 p-3 rounded border border-zinc-850 flex flex-col gap-1.5">
+                <span className="text-[10px] text-zinc-400 uppercase font-bold">Restrict Connection Subnet</span>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={allowedIpRange}
+                    onChange={(e) => setAllowedIpRange(e.target.value)}
+                    placeholder="e.g. 192.168.1.0/24"
+                    className="bg-black border border-zinc-800 text-zinc-300 text-xs p-1.5 rounded-lg flex-1 font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    onClick={() => {
+                      addLog(`[SECURITY] IP constraint rules updated: ${allowedIpRange}`);
+                      setSecurityLogs(prev => [`[${new Date().toLocaleTimeString()}] Subnet rule added: ${allowedIpRange}`, ...prev]);
+                    }}
+                    className="bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-[10px] text-zinc-300 hover:text-white px-3 py-1 rounded"
+                  >
+                    Set Subnet
+                  </button>
+                </div>
+              </div>
+
+              {/* Security Audit Log area */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] text-zinc-600 uppercase font-bold tracking-wide">Security Audit Logs (Handshake & Signals)</span>
+                <div className="bg-black border border-zinc-900 rounded p-2 h-[90px] overflow-y-auto text-[8.5px] font-mono text-zinc-500 space-y-1 scrollbar-thin scrollbar-thumb-zinc-800">
+                  {securityLogs.map((logItem, index) => (
+                    <div key={index} className="leading-relaxed border-b border-zinc-950 pb-0.5 last:border-none">
+                      <span className="text-zinc-600 font-normal">{logItem.split(" ")[0]}</span>
+                      <span className="text-zinc-400 ml-1">{logItem.substring(logItem.indexOf(" ") + 1)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
