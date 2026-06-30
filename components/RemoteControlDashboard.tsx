@@ -1002,7 +1002,7 @@ export default function RemoteControlDashboard({
                   >
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] text-zinc-600">{item.timestamp}</span>
+                        <span className="text-[9px] text-zinc-600" suppressHydrationWarning>{item.timestamp}</span>
                         <span className="font-bold text-zinc-300">{item.action}</span>
                       </div>
                       <p className="text-zinc-500 text-[10px] leading-relaxed">{item.details}</p>

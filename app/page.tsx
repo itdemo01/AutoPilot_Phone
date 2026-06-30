@@ -45,6 +45,13 @@ import {
   Globe,
   Map,
   Search,
+  LayoutDashboard,
+  Menu,
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
+  Target,
+  Sliders,
 } from "lucide-react";
 import PerformanceChart from "../components/PerformanceChart";
 import SwarmFleetDashboard from "../components/SwarmFleetDashboard";
@@ -81,6 +88,8 @@ export default function Page() {
   
   const [session, setSession] = useState<UserSession | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [activeTab, setActiveTab] = useState("dashboard"); // 'dashboard' | 'mirroring' | 'vision' | 'outreach' | 'terminal' | 'scheduler'
 
   const [isSecurityOpen, setIsSecurityOpen] = useState(false);
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
@@ -93,6 +102,7 @@ export default function Page() {
     "> Device identified as: Pixel 8 Pro (Android 14)",
   ]);
   const [battery, setBattery] = useState(87);
+  const [powerSavingMode, setPowerSavingMode] = useState(false);
   const [isVisionExpanded, setIsVisionExpanded] = useState(false);
   const [visionZoom, setVisionZoom] = useState(1);
   const [visionPan, setVisionPan] = useState({ x: 0, y: 0 });
@@ -133,7 +143,7 @@ export default function Page() {
     {
       id: string;
       name: string;
-      conditionType: "Time" | "Location" | "Wi-Fi";
+      conditionType: "Time" | "Location" | "Wi-Fi" | "Battery";
       conditionValue: string;
       actionScript: string;
       isActive: boolean;
@@ -155,10 +165,18 @@ export default function Page() {
       actionScript: "App Integrity Tester",
       isActive: false,
     },
+    {
+      id: "prof_3",
+      name: "Low Battery Shield",
+      conditionType: "Battery",
+      conditionValue: "< 20%",
+      actionScript: "Power Saving Mode ON",
+      isActive: true,
+    },
   ]);
   const [newProfileName, setNewProfileName] = useState("");
   const [newProfileConditionType, setNewProfileConditionType] = useState<
-    "Time" | "Location" | "Wi-Fi"
+    "Time" | "Location" | "Wi-Fi" | "Battery"
   >("Time");
   const [newProfileConditionValue, setNewProfileConditionValue] = useState("");
   const [newProfileActionScript, setNewProfileActionScript] =
@@ -443,7 +461,7 @@ export default function Page() {
           executeShellCommand("input keyevent KEYCODE_CAMERA");
         }
 
-        setBattery((prev) => Math.max(0, prev - Math.random() * 0.5));
+        setBattery((prev) => Math.max(0, prev - (powerSavingMode ? Math.random() * 0.12 : Math.random() * 0.5)));
         stateIndex++;
       }, 3500);
     } else if (!isAutonomousActive) {
@@ -454,6 +472,60 @@ export default function Page() {
     }
     return () => clearInterval(interval);
   }, [isAutonomousActive, isManualOverride, zeroTouchIntent]);
+
+  // Conditional Logic System Rule Engine
+  useEffect(() => {
+    if (!isConnected) return;
+
+    automationProfiles.forEach((profile) => {
+      if (!profile.isActive) return;
+
+      let isConditionMet = false;
+
+      if (profile.conditionType === "Battery") {
+        const val = profile.conditionValue.trim();
+        const isBelow = val.includes("<") || val.toLowerCase().includes("below") || val.toLowerCase().includes("under");
+        const isAbove = val.includes(">") || val.toLowerCase().includes("above") || val.toLowerCase().includes("over");
+        const numericMatch = val.match(/(\d+)/);
+        if (numericMatch) {
+          const threshold = parseInt(numericMatch[0], 10);
+          if (isAbove) {
+            isConditionMet = battery > threshold;
+          } else {
+            isConditionMet = battery < threshold;
+          }
+        }
+      }
+
+      if (isConditionMet) {
+        if (profile.actionScript === "Power Saving Mode ON") {
+          if (!powerSavingMode) {
+            setPowerSavingMode(true);
+            addLog(`[Rule Engine] Rule "${profile.name}" triggered: Battery level (${Math.round(battery)}%) is below threshold!`);
+            addLog(`System action: Power Saving Mode has been activated.`);
+          }
+        } else if (profile.actionScript === "Power Saving Mode OFF") {
+          if (powerSavingMode) {
+            setPowerSavingMode(false);
+            addLog(`[Rule Engine] Rule "${profile.name}" triggered: Battery level (${Math.round(battery)}%) is above threshold!`);
+            addLog(`System action: Power Saving Mode has been deactivated.`);
+          }
+        } else if (profile.actionScript === "Trigger Alert Notification") {
+          // Send log notification only if battery level changes
+          addLog(`[Rule Engine] Alert Triggered: ${profile.name} - Battery level is currently ${Math.round(battery)}%!`);
+        } else {
+          // Standard automation script
+          const scriptIndex = scripts.findIndex((s) => s.name === profile.actionScript);
+          if (scriptIndex >= 0 && scripts[scriptIndex].status !== "Active") {
+            const newScripts = [...scripts];
+            newScripts[scriptIndex].status = "Active";
+            setScripts(newScripts);
+            addLog(`[Rule Engine] Rule "${profile.name}" triggered: Starting automated script "${profile.actionScript}"...`);
+          }
+        }
+      }
+    });
+  }, [battery, automationProfiles, powerSavingMode, scripts, isConnected]);
 
   useEffect(() => {
     let nodeInterval: NodeJS.Timeout;
@@ -1067,38 +1139,156 @@ export default function Page() {
         onOpenAuth={() => setIsAuthOpen(true)}
       />
 
-      <main className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 pb-20 max-w-7xl mx-auto">
-        {/* Full-width Phone Dashboard Section */}
-        <div className="lg:col-span-12">
-          <PhoneDashboardManager
-            scripts={scripts}
-            setScripts={setScripts}
-            battery={battery}
-            setBattery={setBattery}
-            selectedDeviceId={selectedDeviceId}
-            devices={devices}
-            addLog={addLog}
-            isManualOverride={isManualOverride}
-            setIsManualOverride={setIsManualOverride}
-            executeShellCommand={executeShellCommand}
-          />
+      {/* Main Workspace Layout with Sidebar */}
+      <div className="flex-1 w-full max-w-7xl mx-auto flex flex-col md:flex-row relative min-h-0">
+        
+        {/* Collapsible Sidebar */}
+        <motion.aside
+          animate={{ width: isSidebarOpen ? 240 : 64 }}
+          transition={{ duration: 0.3, ease: "easeInOut" }}
+          className="hidden md:flex flex-col border-r border-zinc-900 bg-[#06060c] shrink-0 sticky top-[73px] h-[calc(100vh-73px)] overflow-hidden z-20"
+        >
+          {/* Sidebar Top Header */}
+          <div className="p-4 border-b border-zinc-900 flex items-center justify-between h-[57px] shrink-0">
+            {isSidebarOpen ? (
+              <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">Navigation Hub</span>
+            ) : (
+              <LayoutDashboard className="w-4 h-4 text-zinc-500 mx-auto" />
+            )}
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-1 hover:bg-zinc-900 rounded text-zinc-500 hover:text-zinc-300 transition-colors"
+              title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+            >
+              {isSidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {/* Navigation Links */}
+          <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto">
+            {[
+              { id: "dashboard", label: "Unified Console", icon: LayoutDashboard, desc: "All modules grid" },
+              { id: "mirroring", label: "Device Mirroring", icon: Smartphone, desc: "Interactive controls" },
+              { id: "vision", label: "Vision & 0-Touch", icon: Sparkles, desc: "AI visual analysis" },
+              { id: "outreach", label: "Outreach Hub", icon: Target, desc: "Lead extractor" },
+              { id: "terminal", label: "ADB Logs & Term", icon: TerminalIcon, desc: "System terminal" },
+              { id: "scheduler", label: "Triggers & Tasks", icon: Calendar, desc: "Automation routines" },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left group border ${
+                    isActive
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                      : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-transparent"
+                  }`}
+                >
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-zinc-300"}`} />
+                  {isSidebarOpen && (
+                    <div className="truncate">
+                      <div className="text-xs font-semibold leading-none">{tab.label}</div>
+                      <div className="text-[9px] text-zinc-600 mt-0.5 leading-none font-mono group-hover:text-zinc-500 transition-colors">{tab.desc}</div>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Sidebar Footer Metrics */}
+          {isSidebarOpen && (
+            <div className="p-4 border-t border-zinc-900 space-y-3 font-mono text-[9px] text-zinc-500 bg-black/10">
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span>SYSTEM RESOURCE</span>
+                  <span className="text-emerald-400 font-bold">ACTIVE</span>
+                </div>
+                <div className="w-full h-1 bg-zinc-900 rounded-full overflow-hidden">
+                  <div className="bg-emerald-500 h-full rounded-full" style={{ width: "45%" }} />
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span>ENGINE SPEED</span>
+                  <span className="text-zinc-400">0.05s response</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </motion.aside>
+
+        {/* Mobile floating responsive menu bar */}
+        <div className="md:hidden flex items-center justify-start gap-1 border-b border-zinc-900 bg-zinc-950 p-2 overflow-x-auto select-none shrink-0 scrollbar-thin scrollbar-thumb-zinc-800">
+          {[
+            { id: "dashboard", icon: LayoutDashboard, label: "Unified" },
+            { id: "mirroring", icon: Smartphone, label: "Mirror" },
+            { id: "vision", icon: Sparkles, label: "Vision" },
+            { id: "outreach", icon: Target, label: "Outreach" },
+            { id: "terminal", icon: TerminalIcon, label: "ADB Logs" },
+            { id: "scheduler", icon: Calendar, label: "Triggers" },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono transition-all shrink-0 ${
+                  isActive
+                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                    : "text-zinc-400 border border-transparent hover:text-zinc-200"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Full-width Secure Remote Control Dashboard Section */}
-        <div className="lg:col-span-12">
-          <RemoteControlDashboard
-            activeApp={activeApp}
-            setActiveApp={setActiveApp}
-            addLog={addLog}
-            executeTap={executeTap}
-            battery={battery}
-            devices={devices}
-            selectedDeviceId={selectedDeviceId}
-          />
-        </div>
+        {/* Main Content Pane */}
+        <div className="flex-1 min-w-0">
+          <main className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 pb-20">
+            {/* Full-width Phone Dashboard Section */}
+            {(activeTab === "dashboard" || activeTab === "mirroring") && (
+              <div className="lg:col-span-12">
+                <PhoneDashboardManager
+                  scripts={scripts}
+                  setScripts={setScripts}
+                  battery={battery}
+                  setBattery={setBattery}
+                  powerSavingMode={powerSavingMode}
+                  selectedDeviceId={selectedDeviceId}
+                  devices={devices}
+                  addLog={addLog}
+                  isManualOverride={isManualOverride}
+                  setIsManualOverride={setIsManualOverride}
+                  executeShellCommand={executeShellCommand}
+                />
+              </div>
+            )}
 
-        {/* Left Column: Vision & Commands */}
-        <div className="lg:col-span-5 flex flex-col gap-4 sm:gap-6">
+            {/* Full-width Secure Remote Control Dashboard Section */}
+            {(activeTab === "dashboard" || activeTab === "mirroring") && (
+              <div className="lg:col-span-12">
+                <RemoteControlDashboard
+                  activeApp={activeApp}
+                  setActiveApp={setActiveApp}
+                  addLog={addLog}
+                  executeTap={executeTap}
+                  battery={battery}
+                  devices={devices}
+                  selectedDeviceId={selectedDeviceId}
+                />
+              </div>
+            )}
+
+            {/* Left Column Group: Vision, Terminal Logs, and Zero-Touch */}
+            {(activeTab === "dashboard" || activeTab === "vision") && (
+              <div className="lg:col-span-5 flex flex-col gap-4 sm:gap-6">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-4 sm:p-5">
             <h2 className="text-sm font-bold tracking-widest text-zinc-400 uppercase mb-4 flex items-center justify-between">
               <span>Vision Module</span>
@@ -1157,8 +1347,9 @@ export default function Page() {
                           <Wifi className="w-2 h-2" />
                           <Signal className="w-2 h-2" />
                           <div
-                            className={`flex items-center gap-[1px] ml-[1px] ${battery < 15 ? "text-red-500 animate-pulse" : ""}`}
+                            className={`flex items-center gap-[1px] ml-[1px] ${powerSavingMode ? "text-amber-400 font-bold" : battery < 15 ? "text-red-500 animate-pulse" : ""}`}
                           >
+                            {powerSavingMode && <span className="text-[6px] text-amber-400">⚡</span>}
                             <span className="scale-75">
                               {Math.round(battery)}%
                             </span>
@@ -1169,6 +1360,12 @@ export default function Page() {
 
                       {/* Fake Content Based on Active App */}
                       <div className="flex-1 bg-gradient-to-b from-zinc-800 to-zinc-950 p-2 relative">
+                        {powerSavingMode && (
+                          <div className="absolute top-1 left-1 right-1 bg-amber-500/95 text-black text-[7px] font-extrabold py-0.5 px-1.5 rounded flex items-center justify-between z-50 animate-pulse shadow-md">
+                            <span>🔋 Power Saving Active</span>
+                            <span className="text-[6px] opacity-80 font-mono">CPU -50%</span>
+                          </div>
+                        )}
                         {screenData ? (
                           <div className="absolute inset-0 bg-black flex items-center justify-center z-40">
                             <img
@@ -1494,127 +1691,131 @@ export default function Page() {
           </div>
 
           {/* Terminal Logs (Command Section) */}
-          <div className="bg-black border border-zinc-800 rounded-xl overflow-hidden shadow-lg shadow-black/50 flex flex-col h-[280px]">
-            <div className="bg-zinc-900/50 px-4 py-2 border-b border-zinc-800 flex justify-between items-center shrink-0">
-              <h2 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                <TerminalIcon className="w-4 h-4" /> Agent Logs
-              </h2>
-              <div className="flex items-center gap-3">
-                {isRemoteHandoffActive && (
-                  <div className="flex items-center gap-2 text-xs font-mono text-amber-500 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20">
-                    <RotateCw className="w-3 h-3 animate-spin" />
-                    Waiting for remote response...
-                  </div>
-                )}
-                <button
-                  onClick={() => setLogs(["> Logs cleared."])}
-                  className="text-xs text-zinc-500 hover:text-white transition-colors"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-            <div
-              className="p-4 flex-1 overflow-y-auto flex flex-col gap-1 font-mono text-sm scroll-smooth"
-              id="terminal-logs"
-            >
-              <AnimatePresence initial={false}>
-                {logs.map((log, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className={`${log.includes("successfully") ? "text-emerald-400" : log.includes("error") ? "text-red-400" : log.startsWith("$") ? "text-zinc-100 font-bold tracking-wide mt-2" : "text-zinc-400"}`}
-                  >
-                    {log}
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
-            <form
-              onSubmit={handleCommand}
-              className="border-t border-zinc-800 shrink-0 flex items-center bg-zinc-900/30 relative"
-            >
-              <div className="flex items-center text-xs font-mono px-3 py-1 bg-zinc-800/50 border-r border-zinc-800 text-zinc-500 whitespace-nowrap hidden sm:flex">
-                [TARGET:{" "}
-                <span className="text-zinc-300 ml-1 truncate max-w-[80px]">
-                  {devices.find((d) => d.id === selectedDeviceId)?.name ||
-                    "N/A"}
-                </span>
-                ]
-              </div>
-              <span className="text-emerald-500 font-mono font-bold pl-3 pr-2">
-                »
-              </span>
-              <input
-                type="text"
-                value={commandInput}
-                onChange={(e) => setCommandInput(e.target.value)}
-                onKeyDown={handleTerminalKeyDown}
-                onFocus={() => setIsInputFocused(true)}
-                onBlur={() => setTimeout(() => setIsInputFocused(false), 200)}
-                placeholder="Enter command..."
-                className="flex-1 bg-transparent border-none text-zinc-100 font-mono text-sm py-3 pr-4 focus:ring-0 focus:outline-none placeholder-zinc-700"
-              />
-              <AnimatePresence>
-                {isInputFocused && matchingSuggestions.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute bottom-full left-0 right-0 mb-2 mx-4 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl overflow-hidden z-20"
-                  >
-                    <div className="text-xs text-zinc-500 font-mono px-3 py-1.5 border-b border-zinc-700/50 bg-zinc-900/50 flex justify-between">
-                      <span>Suggestions</span>
-                      <span>[Tab] to autocomplete</span>
+          {activeTab === "dashboard" && (
+            <div className="bg-black border border-zinc-800 rounded-xl overflow-hidden shadow-lg shadow-black/50 flex flex-col h-[280px]">
+              <div className="bg-zinc-900/50 px-4 py-2 border-b border-zinc-800 flex justify-between items-center shrink-0">
+                <h2 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                  <TerminalIcon className="w-4 h-4" /> Agent Logs
+                </h2>
+                <div className="flex items-center gap-3">
+                  {isRemoteHandoffActive && (
+                    <div className="flex items-center gap-2 text-xs font-mono text-amber-500 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20">
+                      <RotateCw className="w-3 h-3 animate-spin" />
+                      Waiting for remote response...
                     </div>
-                    <ul className="max-h-40 overflow-y-auto w-full">
-                      {matchingSuggestions.map((suggestion, idx) => (
-                        <li
-                          key={`${suggestion}-${idx}`}
-                          className={`px-3 py-2 text-sm font-mono cursor-pointer flex items-center gap-2 ${idx === 0 ? "bg-zinc-700/30 text-zinc-200" : "text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-200"} transition-colors`}
-                          onClick={() => {
-                            setCommandInput(suggestion + " ");
-                            const inputEl = document.querySelector(
-                              'input[placeholder*="Enter command"]',
-                            ) as HTMLInputElement;
-                            if (inputEl) inputEl.focus();
-                          }}
-                        >
-                          <span
-                            className={`${idx === 0 ? "text-emerald-400 font-bold" : "text-zinc-500 opacity-50"}`}
+                  )}
+                  <button
+                    onClick={() => setLogs(["> Logs cleared."])}
+                    className="text-xs text-zinc-500 hover:text-white transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div
+                className="p-4 flex-1 overflow-y-auto flex flex-col gap-1 font-mono text-sm scroll-smooth"
+                id="terminal-logs"
+              >
+                <AnimatePresence initial={false}>
+                  {logs.map((log, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className={`${log.includes("successfully") ? "text-emerald-400" : log.includes("error") ? "text-red-400" : log.startsWith("$") ? "text-zinc-100 font-bold tracking-wide mt-2" : "text-zinc-400"}`}
+                    >
+                      {log}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+              <form
+                onSubmit={handleCommand}
+                className="border-t border-zinc-800 shrink-0 flex items-center bg-zinc-900/30 relative"
+              >
+                <div className="flex items-center text-xs font-mono px-3 py-1 bg-zinc-800/50 border-r border-zinc-800 text-zinc-500 whitespace-nowrap hidden sm:flex">
+                  [TARGET:{" "}
+                  <span className="text-zinc-300 ml-1 truncate max-w-[80px]">
+                    {devices.find((d) => d.id === selectedDeviceId)?.name ||
+                      "N/A"}
+                  </span>
+                  ]
+                </div>
+                <span className="text-emerald-500 font-mono font-bold pl-3 pr-2">
+                  »
+                </span>
+                <input
+                  type="text"
+                  value={commandInput}
+                  onChange={(e) => setCommandInput(e.target.value)}
+                  onKeyDown={handleTerminalKeyDown}
+                  onFocus={() => setIsInputFocused(true)}
+                  onBlur={() => setTimeout(() => setIsInputFocused(false), 200)}
+                  placeholder="Enter command..."
+                  className="flex-1 bg-transparent border-none text-zinc-100 font-mono text-sm py-3 pr-4 focus:ring-0 focus:outline-none placeholder-zinc-700"
+                />
+                <AnimatePresence>
+                  {isInputFocused && matchingSuggestions.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute bottom-full left-0 right-0 mb-2 mx-4 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl overflow-hidden z-20"
+                    >
+                      <div className="text-xs text-zinc-500 font-mono px-3 py-1.5 border-b border-zinc-700/50 bg-zinc-900/50 flex justify-between">
+                        <span>Suggestions</span>
+                        <span>[Tab] to autocomplete</span>
+                      </div>
+                      <ul className="max-h-40 overflow-y-auto w-full">
+                        {matchingSuggestions.map((suggestion, idx) => (
+                          <li
+                            key={`${suggestion}-${idx}`}
+                            className={`px-3 py-2 text-sm font-mono cursor-pointer flex items-center gap-2 ${idx === 0 ? "bg-zinc-700/30 text-zinc-200" : "text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-200"} transition-colors`}
+                            onClick={() => {
+                              setCommandInput(suggestion + " ");
+                              const inputEl = document.querySelector(
+                                'input[placeholder*="Enter command"]',
+                              ) as HTMLInputElement;
+                              if (inputEl) inputEl.focus();
+                            }}
                           >
-                            »
-                          </span>
-                          <span>
-                            {suggestion.substring(0, commandInput.length)}
-                          </span>
-                          <span
-                            className={
-                              idx === 0 ? "text-zinc-300" : "text-zinc-500"
-                            }
-                          >
-                            {suggestion.substring(commandInput.length)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </form>
-          </div>
+                            <span
+                              className={`${idx === 0 ? "text-emerald-400 font-bold" : "text-zinc-500 opacity-50"}`}
+                            >
+                              »
+                            </span>
+                            <span>
+                              {suggestion.substring(0, commandInput.length)}
+                            </span>
+                            <span
+                              className={
+                                idx === 0 ? "text-zinc-300" : "text-zinc-500"
+                              }
+                            >
+                              {suggestion.substring(commandInput.length)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </form>
+            </div>
+          )}
 
           {/* Real Terminal & Git Pipeline */}
-          <div className="h-[350px]">
-            <RealTerminal
-              battery={battery}
-              session={session}
-              onOpenAuth={() => setIsAuthOpen(true)}
-            />
-          </div>
+          {activeTab === "dashboard" && (
+            <div className="h-[350px]">
+              <RealTerminal
+                battery={battery}
+                session={session}
+                onOpenAuth={() => setIsAuthOpen(true)}
+              />
+            </div>
+          )}
 
           {/* Zero-Touch Orchestration Bar */}
           <div className="bg-zinc-900 border border-zinc-800 p-2 pl-4 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.05)] focus-within:border-emerald-500/50 transition-colors">
@@ -1675,18 +1876,22 @@ export default function Page() {
           </div>
 
           {/* Phone Dashboard & Task Manager is now rendered in full-width at the top of the main container */}
-        </div>
+            </div>
+          )}
 
         {/* Right Column: Actions & Dashboards */}
-        <div className="lg:col-span-7 flex flex-col gap-4 sm:gap-6">
-          <ClientHunter
-            selectedDeviceId={selectedDeviceId}
-            deviceName={
-              devices.find((d) => d.id === selectedDeviceId)?.name ||
-              "Target Device"
-            }
-            onLog={addLog}
-          />
+        {(activeTab === "dashboard" || activeTab === "vision") && (
+          <div className="lg:col-span-7 flex flex-col gap-4 sm:gap-6">
+            {activeTab === "dashboard" && (
+              <ClientHunter
+                selectedDeviceId={selectedDeviceId}
+                deviceName={
+                  devices.find((d) => d.id === selectedDeviceId)?.name ||
+                  "Target Device"
+                }
+                onLog={addLog}
+              />
+            )}
 
           {/* Orchestrator Node Visualizer */}
           <AnimatePresence>
@@ -1775,89 +1980,91 @@ export default function Page() {
             setBrowserSearchResults={setBrowserSearchResults}
           />
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl shadow-lg">
-              <h3 className="text-zinc-400 text-xs tracking-wider mb-2 uppercase">
-                Target Device
-              </h3>
-              <p className="text-lg text-white font-medium">
-                {devices.find((d) => d.id === selectedDeviceId)?.name ||
-                  "Unknown Device"}
-              </p>
-              <p className="text-zinc-500 text-sm mt-1">
-                ID: {selectedDeviceId}
-              </p>
-            </div>
-            <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl shadow-lg relative overflow-hidden">
-              {isEdgeMode && (
-                <div className="absolute top-0 right-0 p-2">
-                  <div className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-[9px] font-bold tracking-widest rounded border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.5)]">
-                    <GlobeLock className="w-3 h-3 inline-block mr-1" />
-                    ZERO-LATENCY
-                  </div>
+            {activeTab === "dashboard" && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl shadow-lg">
+                  <h3 className="text-zinc-400 text-xs tracking-wider mb-2 uppercase">
+                    Target Device
+                  </h3>
+                  <p className="text-lg text-white font-medium">
+                    {devices.find((d) => d.id === selectedDeviceId)?.name ||
+                      "Unknown Device"}
+                  </p>
+                  <p className="text-zinc-500 text-sm mt-1">
+                    ID: {selectedDeviceId}
+                  </p>
                 </div>
-              )}
-              <h3 className="text-zinc-400 text-xs tracking-wider mb-2 uppercase flex items-center gap-2">
-                <BrainCircuit className="w-4 h-4" /> AI Inference Engine
-              </h3>
-              <div className="flex items-center justify-between mb-2">
-                <button
-                  onClick={() => setIsEdgeMode(false)}
-                  className={`flex-1 text-xs py-1 text-center font-bold font-mono transition-colors border-b-2 ${!isEdgeMode ? "border-blue-500 text-blue-400" : "border-zinc-800 text-zinc-600 hover:text-zinc-400"}`}
-                >
-                  CLOUD API
-                </button>
-                <button
-                  onClick={() => setIsEdgeMode(true)}
-                  className={`flex-1 text-xs py-1 text-center font-bold font-mono transition-colors border-b-2 ${isEdgeMode ? "border-emerald-500 text-emerald-400" : "border-zinc-800 text-zinc-600 hover:text-zinc-400"}`}
-                >
-                  EDGE SLM
-                </button>
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl shadow-lg relative overflow-hidden">
+                  {isEdgeMode && (
+                    <div className="absolute top-0 right-0 p-2">
+                      <div className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-[9px] font-bold tracking-widest rounded border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.5)]">
+                        <GlobeLock className="w-3 h-3 inline-block mr-1" />
+                        ZERO-LATENCY
+                      </div>
+                    </div>
+                  )}
+                  <h3 className="text-zinc-400 text-xs tracking-wider mb-2 uppercase flex items-center gap-2">
+                    <BrainCircuit className="w-4 h-4" /> AI Inference Engine
+                  </h3>
+                  <div className="flex items-center justify-between mb-2">
+                    <button
+                      onClick={() => setIsEdgeMode(false)}
+                      className={`flex-1 text-xs py-1 text-center font-bold font-mono transition-colors border-b-2 ${!isEdgeMode ? "border-blue-500 text-blue-400" : "border-zinc-800 text-zinc-600 hover:text-zinc-400"}`}
+                    >
+                      CLOUD API
+                    </button>
+                    <button
+                      onClick={() => setIsEdgeMode(true)}
+                      className={`flex-1 text-xs py-1 text-center font-bold font-mono transition-colors border-b-2 ${isEdgeMode ? "border-emerald-500 text-emerald-400" : "border-zinc-800 text-zinc-600 hover:text-zinc-400"}`}
+                    >
+                      EDGE SLM
+                    </button>
+                  </div>
+                  <p className="text-zinc-500 text-sm mt-3 flex justify-between items-end">
+                    <span>Execution Time</span>
+                    <span
+                      className={`font-mono font-bold ${isEdgeMode ? "text-emerald-400" : "text-blue-400"}`}
+                    >
+                      {isEdgeMode ? "< 4ms" : "~240ms"}
+                    </span>
+                  </p>
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl shadow-lg flex flex-col justify-center items-center relative overflow-hidden group gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={toggleAutonomous}
+                    className={`relative z-10 w-full rounded-lg py-2 font-bold tracking-widest uppercase transition-colors border text-sm ${isAutonomousActive && !isManualOverride ? "bg-emerald-500 text-black border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.3)]" : "bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700"}`}
+                  >
+                    {isAutonomousActive && !isManualOverride
+                      ? "Auto Active"
+                      : isAutonomousActive && isManualOverride
+                        ? "Resume Auto"
+                        : "Engage Auto"}
+                  </motion.button>
+
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      if (isAutonomousActive)
+                        setIsManualOverride(!isManualOverride);
+                    }}
+                    disabled={!isAutonomousActive}
+                    className={`relative z-10 w-full rounded-lg py-2 font-bold tracking-widest uppercase transition-colors border text-sm ${isManualOverride ? "bg-amber-500 text-black border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]" : "bg-zinc-800 text-zinc-500 border-zinc-700"}`}
+                  >
+                    {isManualOverride ? "Override On" : "Manual Override"}
+                  </motion.button>
+
+                  {isAutonomousActive && !isManualOverride && (
+                    <div className="absolute inset-0 border-2 border-emerald-500/50 rounded-xl animate-pulse pointer-events-none"></div>
+                  )}
+                  {isManualOverride && (
+                    <div className="absolute inset-0 border-2 border-amber-500/50 rounded-xl animate-pulse pointer-events-none"></div>
+                  )}
+                </div>
               </div>
-              <p className="text-zinc-500 text-sm mt-3 flex justify-between items-end">
-                <span>Execution Time</span>
-                <span
-                  className={`font-mono font-bold ${isEdgeMode ? "text-emerald-400" : "text-blue-400"}`}
-                >
-                  {isEdgeMode ? "< 4ms" : "~240ms"}
-                </span>
-              </p>
-            </div>
-            <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl shadow-lg flex flex-col justify-center items-center relative overflow-hidden group gap-2">
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={toggleAutonomous}
-                className={`relative z-10 w-full rounded-lg py-2 font-bold tracking-widest uppercase transition-colors border text-sm ${isAutonomousActive && !isManualOverride ? "bg-emerald-500 text-black border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.3)]" : "bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700"}`}
-              >
-                {isAutonomousActive && !isManualOverride
-                  ? "Auto Active"
-                  : isAutonomousActive && isManualOverride
-                    ? "Resume Auto"
-                    : "Engage Auto"}
-              </motion.button>
-
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => {
-                  if (isAutonomousActive)
-                    setIsManualOverride(!isManualOverride);
-                }}
-                disabled={!isAutonomousActive}
-                className={`relative z-10 w-full rounded-lg py-2 font-bold tracking-widest uppercase transition-colors border text-sm ${isManualOverride ? "bg-amber-500 text-black border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]" : "bg-zinc-800 text-zinc-500 border-zinc-700"}`}
-              >
-                {isManualOverride ? "Override On" : "Manual Override"}
-              </motion.button>
-
-              {isAutonomousActive && !isManualOverride && (
-                <div className="absolute inset-0 border-2 border-emerald-500/50 rounded-xl animate-pulse pointer-events-none"></div>
-              )}
-              {isManualOverride && (
-                <div className="absolute inset-0 border-2 border-amber-500/50 rounded-xl animate-pulse pointer-events-none"></div>
-              )}
-            </div>
-          </div>
+            )}
 
           <AgenticSkillModule
             isAutonomousActive={isAutonomousActive}
@@ -1865,170 +2072,177 @@ export default function Page() {
             onHandoffStateChange={setIsRemoteHandoffActive}
           />
 
-          <SwarmFleetDashboard
-            isEdgeMode={isEdgeMode}
-            isAutonomousActive={isAutonomousActive}
-          />
+          {activeTab === "dashboard" && (
+            <SwarmFleetDashboard
+              isEdgeMode={isEdgeMode}
+              isAutonomousActive={isAutonomousActive}
+            />
+          )}
 
           {/* Proactive Suggestions */}
-          <div className="bg-zinc-900 border border-emerald-500/20 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.05)] p-4 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-3 opacity-20 pointer-events-none">
-              <BrainCircuit className="w-16 h-16 text-emerald-500" />
-            </div>
-            <h2 className="text-[10px] font-bold tracking-widest text-emerald-500 uppercase mb-2 flex items-center gap-1.5">
-              <Sparkles className="w-3 h-3" /> Predictive Action
-            </h2>
-            <p className="text-sm text-zinc-300 relative z-10 leading-relaxed font-mono">
-              Routine detected: Do you want me to auto-send yesterday's reports?
-            </p>
-            <div className="mt-3 flex items-center gap-3">
-              <button
-                onClick={() =>
-                  addLog("Executing proactive task: Auto-sending reports...")
-                }
-                className="text-xs bg-emerald-500 text-black font-bold px-4 py-1.5 rounded hover:bg-emerald-400 transition-colors shadow-[0_0_10px_rgba(16,185,129,0.3)]"
-              >
-                Execute Now
-              </button>
-              <button
-                onClick={() => addLog("Dismissing proactive suggestion.")}
-                className="text-xs text-zinc-500 hover:text-zinc-300 hover:underline transition-colors"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-5">
-            <h2 className="text-sm font-bold tracking-widest text-zinc-400 uppercase mb-4 flex items-center gap-2">
-              <Clock className="w-4 h-4" /> Task Scheduler
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 relative">
-              <div className="md:col-span-1">
-                <label className="text-xs text-zinc-500 mb-1 block">
-                  automation script
-                </label>
-                <select
-                  value={scheduleTaskName}
-                  onChange={(e) => setScheduleTaskName(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
-                >
-                  {scripts.map((s) => (
-                    <option key={s.id} value={s.name}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+          {activeTab === "dashboard" && (
+            <div className="bg-zinc-900 border border-emerald-500/20 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.05)] p-4 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-3 opacity-20 pointer-events-none">
+                <BrainCircuit className="w-16 h-16 text-emerald-500" />
               </div>
-              <div className="md:col-span-1">
-                <label className="text-xs text-zinc-500 mb-1 block">
-                  execution time
-                </label>
-                <input
-                  type="time"
-                  value={scheduleTime}
-                  onChange={(e) => setScheduleTime(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50 [color-scheme:dark]"
-                />
-              </div>
-              <div className="md:col-span-1">
-                <label className="text-xs text-zinc-500 mb-1 block">
-                  priority level
-                </label>
-                <select
-                  value={schedulePriority}
-                  onChange={(e) =>
-                    setSchedulePriority(
-                      e.target.value as "Low" | "Medium" | "High",
-                    )
-                  }
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
-                >
-                  <option value="Low">Low</option>
-                  <option value="Medium">Medium</option>
-                  <option value="High">High</option>
-                </select>
-              </div>
-              <div className="md:col-span-1 flex items-end">
+              <h2 className="text-[10px] font-bold tracking-widest text-emerald-500 uppercase mb-2 flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3" /> Predictive Action
+              </h2>
+              <p className="text-sm text-zinc-300 relative z-10 leading-relaxed font-mono">
+                Routine detected: Do you want me to auto-send yesterday's reports?
+              </p>
+              <div className="mt-3 flex items-center gap-3">
                 <button
-                  onClick={handleScheduleTask}
-                  className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
+                  onClick={() =>
+                    addLog("Executing proactive task: Auto-sending reports...")
+                  }
+                  className="text-xs bg-emerald-500 text-black font-bold px-4 py-1.5 rounded hover:bg-emerald-400 transition-colors shadow-[0_0_10px_rgba(16,185,129,0.3)]"
                 >
-                  <Plus className="w-4 h-4" /> Queue Task
+                  Execute Now
+                </button>
+                <button
+                  onClick={() => addLog("Dismissing proactive suggestion.")}
+                  className="text-xs text-zinc-500 hover:text-zinc-300 hover:underline transition-colors"
+                >
+                  Dismiss
                 </button>
               </div>
             </div>
+          )}
 
-            <div className="space-y-3">
-              {scheduledTasks.length === 0 ? (
-                <div className="text-center py-6 text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-lg">
-                  No tasks queued.
-                </div>
-              ) : (
-                scheduledTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className="flex justify-between items-center p-4 bg-zinc-950/50 border border-zinc-800 rounded-lg relative overflow-hidden group"
+          {activeTab === "dashboard" && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-5">
+              <h2 className="text-sm font-bold tracking-widest text-zinc-400 uppercase mb-4 flex items-center gap-2">
+                <Clock className="w-4 h-4" /> Task Scheduler
+              </h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 relative">
+                <div className="md:col-span-1">
+                  <label className="text-xs text-zinc-500 mb-1 block">
+                    automation script
+                  </label>
+                  <select
+                    value={scheduleTaskName}
+                    onChange={(e) => setScheduleTaskName(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
                   >
+                    {scripts.map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-1">
+                  <label className="text-xs text-zinc-500 mb-1 block">
+                    execution time
+                  </label>
+                  <input
+                    type="time"
+                    value={scheduleTime}
+                    onChange={(e) => setScheduleTime(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50 [color-scheme:dark]"
+                  />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="text-xs text-zinc-500 mb-1 block">
+                    priority level
+                  </label>
+                  <select
+                    value={schedulePriority}
+                    onChange={(e) =>
+                      setSchedulePriority(
+                        e.target.value as "Low" | "Medium" | "High",
+                      )
+                    }
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
+                  >
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                  </select>
+                </div>
+                <div className="md:col-span-1 flex items-end">
+                  <button
+                    onClick={handleScheduleTask}
+                    className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" /> Queue Task
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {scheduledTasks.length === 0 ? (
+                  <div className="text-center py-6 text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-lg">
+                    No tasks queued.
+                  </div>
+                ) : (
+                  scheduledTasks.map((task) => (
                     <div
-                      className={`absolute left-0 top-0 bottom-0 w-1 transition-colors ${
-                        task.priority === "High"
-                          ? "bg-red-500/40 group-hover:bg-red-500"
-                          : task.priority === "Low"
-                            ? "bg-blue-500/40 group-hover:bg-blue-500"
-                            : "bg-amber-500/40 group-hover:bg-amber-500"
-                      }`}
-                    ></div>
-                    <div className="flex items-center gap-4 pl-2">
-                      <div className="bg-zinc-900 border border-zinc-800 w-12 h-12 rounded flex flex-col items-center justify-center">
-                        <Clock className="w-4 h-4 text-zinc-500 mb-0.5" />
-                        <span className="text-[10px] text-zinc-400 font-mono">
-                          {task.time}
-                        </span>
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium text-zinc-200 flex items-center gap-2">
-                          <span>{task.scriptName}</span>
-                          <span
-                            className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
-                              task.priority === "High"
-                                ? "bg-red-500/10 text-red-400 border-red-500/20"
-                                : task.priority === "Low"
-                                  ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                                  : "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                            }`}
-                          >
-                            {task.priority || "Medium"}
+                      key={task.id}
+                      className="flex justify-between items-center p-4 bg-zinc-950/50 border border-zinc-800 rounded-lg relative overflow-hidden group"
+                    >
+                      <div
+                        className={`absolute left-0 top-0 bottom-0 w-1 transition-colors ${
+                          task.priority === "High"
+                            ? "bg-red-500/40 group-hover:bg-red-500"
+                            : task.priority === "Low"
+                              ? "bg-blue-500/40 group-hover:bg-blue-500"
+                              : "bg-amber-500/40 group-hover:bg-amber-500"
+                        }`}
+                      ></div>
+                      <div className="flex items-center gap-4 pl-2">
+                        <div className="bg-zinc-900 border border-zinc-800 w-12 h-12 rounded flex flex-col items-center justify-center">
+                          <Clock className="w-4 h-4 text-zinc-500 mb-0.5" />
+                          <span className="text-[10px] text-zinc-400 font-mono">
+                            {task.time}
                           </span>
                         </div>
-                        <div className="text-xs font-mono text-zinc-500 mt-1 flex items-center gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/80 animate-pulse"></div>
-                          {task.status}
+                        <div>
+                          <div className="text-sm font-medium text-zinc-200 flex items-center gap-2">
+                            <span>{task.scriptName}</span>
+                            <span
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                                task.priority === "High"
+                                  ? "bg-red-500/10 text-red-400 border-red-500/20"
+                                  : task.priority === "Low"
+                                    ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                    : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                              }`}
+                            >
+                              {task.priority || "Medium"}
+                            </span>
+                          </div>
+                          <div className="text-xs font-mono text-zinc-500 mt-1 flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/80 animate-pulse"></div>
+                            {task.status}
+                          </div>
                         </div>
                       </div>
+                      <button
+                        onClick={() =>
+                          setScheduledTasks((prev) =>
+                            prev.filter((t) => t.id !== task.id),
+                          )
+                        }
+                        className="text-zinc-500 hover:text-red-400 p-2 transition-colors border border-transparent hover:border-red-500/30 hover:bg-red-500/10 flex items-center justify-center rounded-md"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
-                    <button
-                      onClick={() =>
-                        setScheduledTasks((prev) =>
-                          prev.filter((t) => t.id !== task.id),
-                        )
-                      }
-                      className="text-zinc-500 hover:text-red-400 p-2 transition-colors border border-transparent hover:border-red-500/30 hover:bg-red-500/10 flex items-center justify-center rounded-md"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))
-              )}
+                  ))
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Automation Profiles */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-5">
-            <h2 className="text-sm font-bold tracking-widest text-zinc-400 uppercase mb-4 flex items-center gap-2">
-              <Zap className="w-4 h-4" /> Automation Profiles
-            </h2>
+          {activeTab === "dashboard" && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-5">
+              <h2 className="text-sm font-bold tracking-widest text-zinc-400 uppercase mb-4 flex items-center gap-2">
+                <Zap className="w-4 h-4" /> Automation Profiles
+              </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
               <div className="md:col-span-1">
@@ -2051,7 +2265,7 @@ export default function Page() {
                   value={newProfileConditionType}
                   onChange={(e) =>
                     setNewProfileConditionType(
-                      e.target.value as "Time" | "Location" | "Wi-Fi",
+                      e.target.value as "Time" | "Location" | "Wi-Fi" | "Battery",
                     )
                   }
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
@@ -2059,6 +2273,7 @@ export default function Page() {
                   <option value="Time">Time of Day</option>
                   <option value="Location">Location</option>
                   <option value="Wi-Fi">Wi-Fi Network</option>
+                  <option value="Battery">Battery Level</option>
                 </select>
               </div>
               <div className="md:col-span-1">
@@ -2074,25 +2289,34 @@ export default function Page() {
                       ? "e.g. CorpNet"
                       : newProfileConditionType === "Location"
                         ? "e.g. Office"
-                        : ""
+                        : newProfileConditionType === "Battery"
+                          ? "e.g. < 20%"
+                          : ""
                   }
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50 [color-scheme:dark]"
                 />
               </div>
               <div className="md:col-span-1">
                 <label className="text-xs text-zinc-500 mb-1 block">
-                  action script
+                  action/script
                 </label>
                 <select
                   value={newProfileActionScript}
                   onChange={(e) => setNewProfileActionScript(e.target.value)}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
                 >
-                  {scripts.map((s) => (
-                    <option key={s.id} value={s.name}>
-                      {s.name}
-                    </option>
-                  ))}
+                  <optgroup label="System Actions">
+                    <option value="Power Saving Mode ON">Activate Power Saving Mode</option>
+                    <option value="Power Saving Mode OFF">Deactivate Power Saving Mode</option>
+                    <option value="Trigger Alert Notification">Trigger Alert Notification</option>
+                  </optgroup>
+                  <optgroup label="Automation Scripts">
+                    {scripts.map((s) => (
+                      <option key={s.id} value={s.name}>
+                        Run: {s.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
               <div className="md:col-span-4 flex items-end justify-end mt-2">
@@ -2176,6 +2400,8 @@ export default function Page() {
                         >
                           {profile.conditionType === "Location" ? (
                             <Map className="w-3 h-3" />
+                          ) : profile.conditionType === "Battery" ? (
+                            <Battery className="w-3 h-3" />
                           ) : (
                             <Wifi className="w-3 h-3" />
                           )}
@@ -2224,6 +2450,9 @@ export default function Page() {
                         {profile.conditionType === "Wi-Fi" && (
                           <Wifi className="w-5 h-5 mb-0.5" />
                         )}
+                        {profile.conditionType === "Battery" && (
+                          <Battery className="w-5 h-5 mb-0.5" />
+                        )}
                       </div>
                       <div>
                         <div className="text-sm font-medium text-zinc-200 flex items-center gap-2">
@@ -2240,12 +2469,12 @@ export default function Page() {
                         </div>
                         <div className="text-xs font-mono text-zinc-500 mt-1 flex items-center gap-2">
                           <span className="bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
-                            IF {profile.conditionType.toUpperCase()} ={" "}
+                            IF {profile.conditionType.toUpperCase()} {profile.conditionType === "Battery" ? "is" : "="}{" "}
                             {profile.conditionValue}
                           </span>
                           <span className="text-zinc-600">→</span>
                           <span className="text-emerald-500/70">
-                            RUN {profile.actionScript}
+                            {profile.actionScript.startsWith("Power") || profile.actionScript.startsWith("Trigger") ? "" : "RUN "}{profile.actionScript}
                           </span>
                         </div>
                       </div>
@@ -2279,8 +2508,383 @@ export default function Page() {
               )}
             </div>
           </div>
+          )}
         </div>
+        )}
+
+        {/* outreach tab */}
+        {activeTab === "outreach" && (
+          <div className="lg:col-span-12 flex flex-col gap-6">
+            <ClientHunter
+              selectedDeviceId={selectedDeviceId}
+              deviceName={
+                devices.find((d) => d.id === selectedDeviceId)?.name ||
+                "Target Device"
+              }
+              onLog={addLog}
+            />
+            <HumanBehaviorCopilot
+              activeApp={activeApp}
+              setActiveApp={setActiveApp}
+              addLog={addLog}
+              executeTap={executeTap}
+              setDetectedUINodes={setDetectedUINodes}
+              zeroTouchIntent={zeroTouchIntent}
+              setZeroTouchIntent={setZeroTouchIntent}
+              setIsAutonomousActive={setIsAutonomousActive}
+              selectedDeviceId={selectedDeviceId}
+              devices={devices}
+              browserSearchQuery={browserSearchQuery}
+              setBrowserSearchQuery={setBrowserSearchQuery}
+              browserSearchResults={browserSearchResults}
+              setBrowserSearchResults={setBrowserSearchResults}
+            />
+          </div>
+        )}
+
+        {/* terminal tab */}
+        {activeTab === "terminal" && (
+          <div className="lg:col-span-12 grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
+            <div className="flex flex-col gap-4">
+              <div className="bg-black border border-zinc-800 rounded-xl overflow-hidden shadow-lg shadow-black/50 flex flex-col h-[500px]">
+                <div className="bg-zinc-900/50 px-4 py-2 border-b border-zinc-800 flex justify-between items-center shrink-0">
+                  <h2 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                    <TerminalIcon className="w-4 h-4" /> Agent Logs
+                  </h2>
+                  <div className="flex items-center gap-3">
+                    {isRemoteHandoffActive && (
+                      <div className="flex items-center gap-2 text-xs font-mono text-amber-500 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20">
+                        <RotateCw className="w-3 h-3 animate-spin" />
+                        Waiting for remote response...
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setLogs(["> Logs cleared."])}
+                      className="text-xs text-zinc-500 hover:text-white transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div
+                  className="p-4 flex-1 overflow-y-auto flex flex-col gap-1 font-mono text-sm scroll-smooth"
+                  id="terminal-logs-focused"
+                >
+                  <AnimatePresence initial={false}>
+                    {logs.map((log, i) => (
+                      <motion.div
+                        key={i}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className={`${log.includes("successfully") ? "text-emerald-400" : log.includes("error") ? "text-red-400" : log.startsWith("$") ? "text-zinc-100 font-bold tracking-wide mt-2" : "text-zinc-400"}`}
+                      >
+                        {log}
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+                <form
+                  onSubmit={handleCommand}
+                  className="border-t border-zinc-800 shrink-0 flex items-center bg-zinc-900/30 relative"
+                >
+                  <div className="flex items-center text-xs font-mono px-3 py-1 bg-zinc-800/50 border-r border-zinc-800 text-zinc-500 whitespace-nowrap hidden sm:flex">
+                    [TARGET:{" "}
+                    <span className="text-zinc-300 ml-1 truncate max-w-[80px]">
+                      {devices.find((d) => d.id === selectedDeviceId)?.name ||
+                        "N/A"}
+                    </span>
+                    ]
+                  </div>
+                  <span className="text-emerald-500 font-mono font-bold pl-3 pr-2">
+                    »
+                  </span>
+                  <input
+                    type="text"
+                    value={commandInput}
+                    onChange={(e) => setCommandInput(e.target.value)}
+                    onKeyDown={handleTerminalKeyDown}
+                    onFocus={() => setIsInputFocused(true)}
+                    onBlur={() => setTimeout(() => setIsInputFocused(false), 200)}
+                    placeholder="Enter command..."
+                    className="flex-1 bg-transparent border-none text-zinc-100 font-mono text-sm py-3 pr-4 focus:ring-0 focus:outline-none placeholder-zinc-700"
+                  />
+                </form>
+              </div>
+            </div>
+            <div className="h-[500px]">
+              <RealTerminal
+                battery={battery}
+                session={session}
+                onOpenAuth={() => setIsAuthOpen(true)}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* scheduler tab */}
+        {activeTab === "scheduler" && (
+          <div className="lg:col-span-12 flex flex-col gap-6">
+            {/* Proactive Suggestions */}
+            <div className="bg-zinc-900 border border-emerald-500/20 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.05)] p-4 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-3 opacity-20 pointer-events-none">
+                <BrainCircuit className="w-16 h-16 text-emerald-500" />
+              </div>
+              <h2 className="text-[10px] font-bold tracking-widest text-emerald-500 uppercase mb-2 flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3" /> Predictive Action
+              </h2>
+              <p className="text-sm text-zinc-300 relative z-10 leading-relaxed font-mono">
+                Routine detected: Do you want me to auto-send yesterday's reports?
+              </p>
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  onClick={() =>
+                    addLog("Executing proactive task: Auto-sending reports...")
+                  }
+                  className="text-xs bg-emerald-500 text-black font-bold px-4 py-1.5 rounded hover:bg-emerald-400 transition-colors shadow-[0_0_10px_rgba(16,185,129,0.3)]"
+                >
+                  Execute Now
+                </button>
+                <button
+                  onClick={() => addLog("Dismissing proactive suggestion.")}
+                  className="text-xs text-zinc-500 hover:text-zinc-300 hover:underline transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-5">
+                <h2 className="text-sm font-bold tracking-widest text-zinc-400 uppercase mb-4 flex items-center gap-2">
+                  <Clock className="w-4 h-4" /> Task Scheduler
+                </h2>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 relative">
+                  <div className="md:col-span-1">
+                    <label className="text-xs text-zinc-500 mb-1 block">
+                      automation script
+                    </label>
+                    <select
+                      value={scheduleTaskName}
+                      onChange={(e) => setScheduleTaskName(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
+                    >
+                      {scripts.map((s) => (
+                        <option key={s.id} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="md:col-span-1">
+                    <label className="text-xs text-zinc-500 mb-1 block">
+                      execution time
+                    </label>
+                    <input
+                      type="time"
+                      value={scheduleTime}
+                      onChange={(e) => setScheduleTime(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50 [color-scheme:dark]"
+                    />
+                  </div>
+                  <div className="md:col-span-1">
+                    <label className="text-xs text-zinc-500 mb-1 block">
+                      priority level
+                    </label>
+                    <select
+                      value={schedulePriority}
+                      onChange={(e) =>
+                        setSchedulePriority(
+                          e.target.value as "Low" | "Medium" | "High",
+                        )
+                      }
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
+                    >
+                      <option value="Low">Low</option>
+                      <option value="Medium">Medium</option>
+                      <option value="High">High</option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-1 flex items-end">
+                    <button
+                      onClick={handleScheduleTask}
+                      className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" /> Queue Task
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {scheduledTasks.length === 0 ? (
+                    <div className="text-center py-6 text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-lg">
+                      No tasks queued.
+                    </div>
+                  ) : (
+                    scheduledTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className="flex justify-between items-center p-4 bg-zinc-950/50 border border-zinc-800 rounded-lg relative overflow-hidden group"
+                      >
+                        <div
+                          className={`absolute left-0 top-0 bottom-0 w-1 transition-colors ${
+                            task.priority === "High"
+                              ? "bg-red-500/40 group-hover:bg-red-500"
+                              : task.priority === "Low"
+                                ? "bg-blue-500/40 group-hover:bg-blue-500"
+                                : "bg-amber-500/40 group-hover:bg-amber-500"
+                          }`}
+                        ></div>
+                        <div className="flex items-center gap-4 pl-2">
+                          <div className="bg-zinc-900 border border-zinc-800 w-12 h-12 rounded flex flex-col items-center justify-center">
+                            <Clock className="w-4 h-4 text-zinc-500 mb-0.5" />
+                            <span className="text-[10px] text-zinc-400 font-mono">
+                              {task.time}
+                            </span>
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-zinc-200 flex items-center gap-2">
+                              <span>{task.scriptName}</span>
+                              <span
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                                  task.priority === "High"
+                                    ? "bg-red-500/10 text-red-400 border-red-500/20"
+                                    : task.priority === "Low"
+                                      ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                      : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                }`}
+                              >
+                                {task.priority || "Medium"}
+                              </span>
+                            </div>
+                            <div className="text-xs font-mono text-zinc-500 mt-1 flex items-center gap-1.5">
+                              <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/80 animate-pulse"></div>
+                              {task.status}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() =>
+                            setScheduledTasks((prev) =>
+                              prev.filter((t) => t.id !== task.id),
+                            )
+                          }
+                          className="text-zinc-500 hover:text-red-400 p-2 transition-colors border border-transparent hover:border-red-500/30 hover:bg-red-500/10 flex items-center justify-center rounded-md"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg p-5">
+                <h2 className="text-sm font-bold tracking-widest text-zinc-400 uppercase mb-4 flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Sliders className="w-4 h-4" /> Trigger Profiles
+                  </span>
+                  <div className="text-[10px] font-mono text-zinc-500 uppercase">
+                    Condition Engine
+                  </div>
+                </h2>
+
+                <div className="space-y-3">
+                  {automationProfiles.length === 0 ? (
+                    <div className="text-center py-6 text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-lg">
+                      No automation profiles active.
+                    </div>
+                  ) : (
+                    automationProfiles.map((profile) => (
+                      <div
+                        key={profile.id}
+                        className={`flex justify-between items-center p-4 bg-zinc-950/50 border rounded-lg relative overflow-hidden group transition-colors ${profile.isActive ? "border-emerald-500/30" : "border-zinc-800"}`}
+                      >
+                        <div
+                          className={`absolute left-0 top-0 bottom-0 w-1 transition-colors ${
+                            profile.isActive
+                              ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+                              : "bg-zinc-800"
+                          }`}
+                        ></div>
+                        <div className="flex items-center gap-4 pl-2">
+                          <div
+                            className={`border w-12 h-12 rounded flex flex-col items-center justify-center transition-colors ${profile.isActive ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-zinc-900 border-zinc-800 text-zinc-500"}`}
+                          >
+                            {profile.conditionType === "Time" && (
+                              <Clock className="w-5 h-5 mb-0.5" />
+                            )}
+                            {profile.conditionType === "Location" && (
+                              <Map className="w-5 h-5 mb-0.5" />
+                            )}
+                            {profile.conditionType === "Wi-Fi" && (
+                              <Wifi className="w-5 h-5 mb-0.5" />
+                            )}
+                            {profile.conditionType === "Battery" && (
+                              <Battery className="w-5 h-5 mb-0.5" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-zinc-200 flex items-center gap-2">
+                              <span>{profile.name}</span>
+                              <span
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                                  profile.isActive
+                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                    : "bg-zinc-800 text-zinc-400 border-zinc-700"
+                                }`}
+                              >
+                                {profile.isActive ? "ACTIVE" : "INACTIVE"}
+                              </span>
+                            </div>
+                            <div className="text-xs font-mono text-zinc-500 mt-1 flex items-center gap-2">
+                              <span className="bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                                IF {profile.conditionType.toUpperCase()} {profile.conditionType === "Battery" ? "is" : "="}{" "}
+                                {profile.conditionValue}
+                              </span>
+                              <span className="text-zinc-600">→</span>
+                              <span className="text-emerald-500/70">
+                                {profile.actionScript.startsWith("Power") || profile.actionScript.startsWith("Trigger") ? "" : "RUN "}{profile.actionScript}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => toggleProfileActive(profile.id)}
+                            className={`p-2 transition-colors border flex items-center justify-center rounded-md ${profile.isActive ? "text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10" : "text-zinc-500 border-zinc-800 hover:text-white hover:bg-zinc-800"}`}
+                            title={
+                              profile.isActive
+                                ? "Disable Profile"
+                                : "Enable Profile"
+                            }
+                          >
+                            <Power className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() =>
+                              setAutomationProfiles((prev) =>
+                                prev.filter((p) => p.id !== profile.id),
+                              )
+                            }
+                            className="text-zinc-500 hover:text-red-400 p-2 transition-colors border border-transparent hover:border-red-500/30 hover:bg-red-500/10 flex items-center justify-center rounded-md"
+                            title="Delete Profile"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
+        </div>
+      </div>
 
       {/* Full-screen Vision Modal */}
       <AnimatePresence>

@@ -69,6 +69,7 @@ interface PhoneDashboardManagerProps {
   setScripts: React.Dispatch<React.SetStateAction<Script[]>>;
   battery: number;
   setBattery: React.Dispatch<React.SetStateAction<number>>;
+  powerSavingMode?: boolean;
   selectedDeviceId: string;
   devices: Device[];
   addLog: (log: string) => void;
@@ -82,6 +83,7 @@ export default function PhoneDashboardManager({
   setScripts,
   battery,
   setBattery,
+  powerSavingMode,
   selectedDeviceId,
   devices,
   addLog,
@@ -646,6 +648,38 @@ export default function PhoneDashboardManager({
                 style={{ width: `${battery}%` }}
               />
             </div>
+
+            {/* Simulated low battery threshold test tool */}
+            <div className="mt-3 pt-2.5 border-t border-zinc-800/40 flex flex-col gap-1.5">
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-zinc-500 font-mono">BATTERY TEST SLIDER</span>
+                <span className="text-indigo-400 font-mono font-bold">{Math.round(battery)}%</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="100"
+                value={Math.round(battery)}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setBattery(val);
+                }}
+                className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none"
+              />
+              <span className="text-[9px] text-zinc-500 leading-normal">
+                💡 Slide below <span className="text-amber-500 font-bold">20%</span> to trigger the conditional <span className="font-semibold text-zinc-300">"Low Battery Shield"</span> rule.
+              </span>
+            </div>
+
+            {powerSavingMode && (
+              <div className="mt-2.5 px-2 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded flex items-center justify-between text-[10px] text-amber-400 font-mono">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping shrink-0" />
+                  POWER SAVING ACTIVE
+                </span>
+                <span className="text-[9px] opacity-70">CPU THROTTLED</span>
+              </div>
+            )}
           </div>
 
           {/* Network Connection Status card */}

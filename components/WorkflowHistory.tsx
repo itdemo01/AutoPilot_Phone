@@ -40,7 +40,7 @@ export default function WorkflowHistory({
               </div>
             </div>
             <div className="flex items-center gap-3 text-xs font-mono text-zinc-500">
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1" suppressHydrationWarning>
                 <Clock className="w-3 h-3" />
                 {entry.startTime.toLocaleTimeString()} -{" "}
                 {entry.endTime.toLocaleTimeString()}
